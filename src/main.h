@@ -3,7 +3,7 @@
 
 #include <stdio.h>
 
-typedef double (*Catalog_Function_Pointer)(int*);
+typedef int (*Catalog_Function_Pointer)(void);
 
 typedef struct {
     char name[50];

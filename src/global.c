@@ -3,7 +3,7 @@
 
 
 const uint8_t inputTextColor = 0;
-const uint8_t inputBackgroundColor = 203; //223 
+const uint8_t inputBackgroundColor = 203; //223 blue 203 brown
 const uint8_t backgroundColor = 0;
 
 const char version[10] = "V:1.0.0";

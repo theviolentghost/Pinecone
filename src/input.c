@@ -16,12 +16,14 @@
     - fix jankiness with left and right movement w/ functions
     - if placeholder char is deleted then delete the corresponding special char (fraction, exp, func)
 
-    - if you change top left...etc parenthesis/brackets chars make sure you update -1 spacing in inv funcs
+    - if you change top-left...etc parenthesis/brackets chars make sure you update -1 spacing in inv funcs
 */
 
 void initializeFonts(void){
     gfx_SetFontData(TextData);
 }
+
+int test = 0;
 
 struct {
     int x;
@@ -210,7 +212,7 @@ Input_handler* createExponent(Input_handler* handler, Display_char* elementToMan
     handler->size++;
     return elementToManipulate->data.exponent->exponent;
 }
-Input_handler* createFunction(Input_handler* handler, Display_char* elementToManipulate, FunctionName name, int base) {
+Input_handler* createFunction(Input_handler* handler, Display_char* elementToManipulate, FunctionName name, int base, bool hasBorder) {
     // Validate position for exponent
     //if (!isValidExponentPosition(handler)) return NULL; //invalid position is when previous char is raw fraction, another exponent, etc
 
@@ -229,7 +231,7 @@ Input_handler* createFunction(Input_handler* handler, Display_char* elementToMan
     elementToManipulate->type = FUNCTION_CHARACTER;
     elementToManipulate->data.function = malloc(sizeof(Function_char));
     elementToManipulate->scale = handler->scale;
-    elementToManipulate->data.function->border = Charcater_Top_Open_Parenthesis;
+    if(hasBorder) elementToManipulate->data.function->border = Charcater_Top_Open_Parenthesis;
     elementToManipulate->data.function->name = name;
 
     // Initialize exponent input handler
@@ -239,7 +241,7 @@ Input_handler* createFunction(Input_handler* handler, Display_char* elementToMan
         //require base inputs
         case LOG_BASE_FUNCTION:
         case ROOT_FUNCTION:
-            elementToManipulate->data.function->baseInput = createInputHandler(6); //shoudnt be larger than 6 chars 2 even 
+            elementToManipulate->data.function->baseInput = createInputHandler(8); //shoudnt be larger than 8 chars 2 even 
             break;
     }
     
@@ -268,11 +270,9 @@ void renderStringAt(const char* string, int x, int y, int scale) {
 void renderCharAt(char character, int x, int y, int scale) {
     if(x < 0 ||x > GFX_LCD_WIDTH - gfx_GetCharWidth(character) || y < 0 || y > GFX_LCD_HEIGHT - 8 * scale) return; //out of bounds of screen
 
-    char string[2] = {character, '\0'};
     gfx_SetTextScale(1, scale); 
     gfx_SetTextXY(x, y);
     gfx_PrintChar(character);
-    //gfx_PrintStringXY(string, x, y);
 }
 
 void Character_setPosition(Display_char* node, Bounds_char* currentBounds, int originY, int offsetX, int offsetY) {
@@ -400,11 +400,23 @@ void Function_setPosition(Display_char* node, Bounds_char* currentBounds, int or
     int x = currentBounds->x + currentBounds->width;
     int y = originY - aboveHeight;
 
-    node->data.function->input->currentBounds->y = y + (functionHasNegativeOnePower(node) ? 4 * node->scale : 0); //account for -1
+    node->data.function->input->currentBounds->y = y + (functionHasNegativeOnePower(node) ? 4 * node->scale : 0) + (node->data.function->name == SQRT_FUNCTION || node->data.function->name == ROOT_FUNCTION ? 2 : 0 ); //account for -2
     node->data.function->input->currentBounds->x = x;
 
     int openBorderWidth = node->data.function->border ? gfx_GetCharWidth(node->data.function->border) : 0;
     setInputCharacterPositions(node->data.function->input, Function_getNameWidth(node) + openBorderWidth + offsetX, 0);
+
+    if(node->data.function->baseInput) {
+        if(node->data.function->name == ROOT_FUNCTION) {
+            node->data.function->baseInput->currentBounds->y = y - 3;
+            node->data.function->baseInput->currentBounds->x = x - 1;
+        } else if(node->data.function->name == LOG_BASE_FUNCTION) {
+            node->data.function->baseInput->currentBounds->y = y + node->getHeight(node) - getExpressionAboveOriginHeight(node->data.function->baseInput);
+            node->data.function->baseInput->currentBounds->x = x + (3 * 8); //3 mono chars
+        }
+
+        setInputCharacterPositions(node->data.function->baseInput, 0, 0);
+    }
 
     node->x = x + offsetX;
     node->y = y + offsetY;
@@ -457,27 +469,26 @@ void Function_render(Display_char* node, int offsetX, int offsetY) {
             if(!preferARCsyntax) specialRendering = true;
             break;
         }
-        case LOG_FUNCTION: textToRender = (FunctionDisplay){"Log", 3}; break;
-        case LOG_BASE_FUNCTION: textToRender = (FunctionDisplay){"Log", 3}; break;
+        case LOG_FUNCTION: 
+        case LOG_BASE_FUNCTION: 
+            textToRender = (FunctionDisplay){"Log", 3}; break;
         case LN_FUNCTION: textToRender = (FunctionDisplay){"Ln", 2}; break;
+        case SQRT_FUNCTION:
+        case ROOT_FUNCTION:
+            break; //just here to suppress warnings
     }
 
     if(textToRender.length > 0) {
         //has text to render
-        int aboveHeight = node->getAboveOriginHeight(node); //accountingfor -1 height;
+        int aboveHeight = node->getAboveOriginHeight(node);
         gfx_SetTextFGColor(inputTextColor);
-        gfx_SetTextScale(1, node->scale); 
         renderStringAt(textToRender.name, node->x + offsetX, node->y + offsetY - 4 * node->scale + aboveHeight, node->scale);//- 4 is inintial height height of char / 2; 
         if(node->data.function->border) {
             int belowHeight = node->getBelowOriginHeight(node);
             int topOffsetY = -(aboveHeight - 4 * node->scale) - 4 * node->scale + aboveHeight;
             int bottomOffsetY = (belowHeight - 4 * node->scale) - 4 * node->scale + aboveHeight;
 
-            // char stringOpenTop[2] = {node->data.function->border, '\0'};
-            // char stringOpenBottom[2] = {node->data.function->border + 1, '\0'};
-            // char stringClosedTop[2] = {node->data.function->border + 2, '\0'};
-            // char stringClosedBottom[2] = {node->data.function->border + 3, '\0'};
-
+            // addaptive parenthesis height rendering
             renderCharAt(node->data.function->border, node->x + offsetX + Function_getNameWidth(node), node->y + offsetY + topOffsetY, node->scale); 
             renderCharAt(node->data.function->border + 1, node->x + offsetX + Function_getNameWidth(node), node->y + offsetY + bottomOffsetY, node->scale); 
             renderCharAt(node->data.function->border + 2, node->x + offsetX + Function_getWidth(node) - (node->data.function->border ? gfx_GetCharWidth(node->data.function->border) : 0), node->y + offsetY + topOffsetY, node->scale);
@@ -489,33 +500,37 @@ void Function_render(Display_char* node, int offsetX, int offsetY) {
             gfx_VertLine(node->x + offsetX + Function_getWidth(node) - (node->data.function->border ? gfx_GetCharWidth(node->data.function->border) : 0) + 4 * node->scale,node->y + offsetY + topOffsetY + 4,length); //right 
         }
         if(specialRendering) {
-            switch(node->data.function->name) {
-                case INVSIN_FUNCTION:
-                case INVCOS_FUNCTION:
-                case INVTAN_FUNCTION:
-                case INVCSC_FUNCTION:
-                case INVSEC_FUNCTION:
-                case INVCOT_FUNCTION: {
-                    //rendering of the -1 (8 * 3 * node->scale - 4 * node->scale); - 4 for shifted -1 to take up less space and move up vertically
-                    renderStringAt("-1", node->x + offsetX + (18), node->y + offsetY - 8 * node->scale + aboveHeight, fmax((int)node->scale/2,1));
-                    break;
-                }
-
+            if(functionHasNegativeOnePower(node)) {
+                //rendering of the -1 (8 * 3 * node->scale - 4 * node->scale); - 4 for shifted -1 to take up less space and move up vertically
+                renderStringAt("-1", node->x + offsetX + (18), node->y + offsetY - 8 * node->scale + aboveHeight, fmax((int)node->scale/2,1));
             }
         }
     }
     else {
         //no text / special cases
+        if(node->data.function->name == SQRT_FUNCTION || node->data.function->name == ROOT_FUNCTION) {
+            // square root function
+            int nameWidth = Function_getNameWidth(node);
+            int height = node->getHeight(node);
+            int inputWidth = getExpressionWidth(node->data.function->input);
 
+            gfx_SetColor(inputTextColor);
+            gfx_Line(node->x + offsetX + nameWidth - 6, node->y + offsetY + height - 2, node->x + offsetX + nameWidth - 2, node->y + offsetY + height);
+            gfx_VertLine(node->x + offsetX + nameWidth - 2, node->y + offsetY, height); // side bar 
+            gfx_HorizLine(node->x + offsetX + nameWidth - 2, node->y + offsetY, inputWidth + 2); // top bar 
+        }
     }
 
     renderInput(node->data.function->input, false, offsetX, offsetY);
+    if(node->data.function->baseInput) renderInput(node->data.function->baseInput, false, offsetX, offsetY);
 }
 int Function_getAboveOriginHeight(Display_char* node) {
-    if(functionHasNegativeOnePower(node)) {
-        return fmax(getExpressionAboveOriginHeight(node->data.function->input), 4 * node->scale) + 4 * node->scale;
-    }
-    return fmax(getExpressionAboveOriginHeight(node->data.function->input), 4 * node->scale); //minimum 4
+    int additionalPadding = 0;
+
+    if(functionHasNegativeOnePower(node)) additionalPadding += 4 * node->scale; //account for -1
+    else if(node->data.function->name == SQRT_FUNCTION) additionalPadding += 2; // account for top bar of root
+
+    return fmax(getExpressionAboveOriginHeight(node->data.function->input), 4 * node->scale) + additionalPadding; //minimum 4
 }
 int Function_getBelowOriginHeight(Display_char* node) {
     return fmax(getExpressionBelowOriginHeight(node->data.function->input), 4 * node->scale);
@@ -528,10 +543,12 @@ int Function_getWidth(Display_char* node) {
     return functionNameWidth + openBorderWidth + getExpressionWidth(node->data.function->input) + closedBorderWidth;
 }
 int Function_getHeight(Display_char* node) {
-    if(functionHasNegativeOnePower(node)) {
-        return fmax(getExpressionHeight(node->data.function->input), 8 * node->scale) + 4 * node->scale; //account for -1
-    }
-    return fmax(getExpressionHeight(node->data.function->input), 8 * node->scale); 
+    int additionalPadding = 0;
+
+    if(functionHasNegativeOnePower(node)) additionalPadding += 4 * node->scale; //account for -1
+    else if(node->data.function->name == SQRT_FUNCTION) additionalPadding += 2; // account for top bar of root
+
+    return fmax(getExpressionHeight(node->data.function->input), 8 * node->scale) + additionalPadding; 
 }
 int Function_getNameWidth(Display_char* node) {
     switch(node->data.function->name) {
@@ -551,12 +568,13 @@ int Function_getNameWidth(Display_char* node) {
         case LOG_FUNCTION: 
             return 8 * 3; //3 mono chars
         case ROOT_FUNCTION:
+            return fmax(6, getExpressionWidth(node->data.function->baseInput)) + 4;
         case SQRT_FUNCTION:
             return 6; //root symbol
         case ABSOLUTE_FUNCTION:
             return 4;
         case LN_FUNCTION:
-            return 8 * 3;
+            return 8 * 2;
         case LOG_BASE_FUNCTION:
             return 8 * 3 + getExpressionWidth(node->data.function->baseInput); //3 chars + base width
     }
@@ -682,6 +700,8 @@ char keyToChar(uint8_t key) {
     if(alpha) {
         switch(key) {
             case sk_0: return Character_Fraction; //fraction - temp
+            case sk_1: return Character_Root; // root - temp
+            case sk_2: return Character_LogBase; // log base - temp
         }
         if(chars[key]) return chars[key];
     }
@@ -691,6 +711,7 @@ char keyToChar(uint8_t key) {
             case sk_Sin: return Character_InvSin; //sin^-1
             case sk_Cos: return Character_InvCos; //cos^-1
             case sk_Tan: return Character_InvTan; //tan^-1
+            case sk_Square: return Character_SquareRoot;
         }
     }
     switch(key) {
@@ -720,6 +741,10 @@ char keyToChar(uint8_t key) {
         case sk_Sin: return Character_Sin;
         case sk_Cos: return Character_Cos;
         case sk_Tan: return Character_Tan;
+        case sk_Log: return Character_Log;
+        case sk_Ln: return Character_Ln;
+        case sk_Square: return Character_Square;
+        case sk_Recip: return Character_Reciprocal;
         default:
             return '?';
     }
@@ -821,28 +846,54 @@ void recordInput(Input_handler* handler, int direction) {
                     return recordInput(exponent, 1);
                 }
                 case Character_Sin: {
-                    Input_handler* function = createFunction(handler, elementToManipulate, SIN_FUNCTION, 0);
+                    Input_handler* function = createFunction(handler, elementToManipulate, SIN_FUNCTION, 0, true);
                     return recordInput(function, 1);
                 }
                 case Character_Cos: {
-                    Input_handler* function = createFunction(handler, elementToManipulate, COS_FUNCTION, 0);
+                    Input_handler* function = createFunction(handler, elementToManipulate, COS_FUNCTION, 0, true);
                     return recordInput(function, 1);
                 }
                 case Character_Tan: {
-                    Input_handler* function = createFunction(handler, elementToManipulate, TAN_FUNCTION, 0);
+                    Input_handler* function = createFunction(handler, elementToManipulate, TAN_FUNCTION, 0, true);
                     return recordInput(function, 1);
                 }
                 case Character_InvSin: {
-                    Input_handler* function = createFunction(handler, elementToManipulate, INVSIN_FUNCTION, 0);
+                    Input_handler* function = createFunction(handler, elementToManipulate, INVSIN_FUNCTION, 0, true);
                     return recordInput(function, 1);
                 }
                 case Character_InvCos: {
-                    Input_handler* function = createFunction(handler, elementToManipulate, INVCOS_FUNCTION, 0);
+                    Input_handler* function = createFunction(handler, elementToManipulate, INVCOS_FUNCTION, 0, true);
                     return recordInput(function, 1);
                 }
                 case Character_InvTan: {
-                    Input_handler* function = createFunction(handler, elementToManipulate, INVTAN_FUNCTION, 0);
+                    Input_handler* function = createFunction(handler, elementToManipulate, INVTAN_FUNCTION, 0, true);
                     return recordInput(function, 1);
+                }
+                case Character_SquareRoot: {
+                    Input_handler* function = createFunction(handler, elementToManipulate, SQRT_FUNCTION, 0, false);
+                    return recordInput(function, 1);
+                }
+                case Character_Root: {
+                    Input_handler* function = createFunction(handler, elementToManipulate, ROOT_FUNCTION, 0, false);
+                    return recordInput(function, 1);
+                }
+                case Character_Log: {
+                    Input_handler* function = createFunction(handler, elementToManipulate, LOG_FUNCTION, 0, true);
+                    return recordInput(function, 1);            
+                }
+                case Character_LogBase: {
+                    Input_handler* function = createFunction(handler, elementToManipulate, LOG_BASE_FUNCTION, 0, true);
+                    return recordInput(function, 1);            
+                }
+                case Character_Ln: {
+                    Input_handler* function = createFunction(handler, elementToManipulate, LN_FUNCTION, 0, true);
+                    return recordInput(function, 1);
+                }
+                case Character_Square: {
+
+                }
+                case Character_Reciprocal: {
+
                 }
                 default:
                     if(character != '?' && handler->size < handler->maxSize) {
@@ -894,13 +945,8 @@ void setInputCharacterPositions(Input_handler* handler, int offsetX, int offsetY
     if (!handler || !handler->buffer || !handler->currentBounds) return;
 
     // Reset bounds width for new rendering
-    //if(!handler->currentBounds->x) handler->currentBounds->x = handler->maxBounds->x;
-    //if(!handler->currentBounds->y) handler->currentBounds->y = handler->maxBounds->y;
-
     handler->currentBounds->width = 0;
 
-    // Calculate maximum heights
-    // int height = getExpressionHeight(handler); //can comment out for calculation saving
     int aboveOriginHeight = getExpressionAboveOriginHeight(handler);
     int originY = handler->currentBounds->y + aboveOriginHeight;
 
@@ -909,6 +955,7 @@ void setInputCharacterPositions(Input_handler* handler, int offsetX, int offsetY
         Display_char* currentChar = &handler->buffer[index];
         if (currentChar && currentChar->type != EMPTY_CHARACTER && currentChar->setPosition) {
             currentChar->setPosition(currentChar, handler->currentBounds, originY, offsetX, offsetY);
+            if(index != handler->size - 1) handler->currentBounds->width += inputFieldCharacterSpacing;
         }
     }
 }
@@ -1087,6 +1134,7 @@ int getExpressionWidth(Input_handler* handler) {
         if (currentChar->type != EMPTY_CHARACTER) {
             if (currentChar->getBelowOriginHeight) {
                 width += currentChar->getWidth(currentChar);
+                if(index != handler->size - 1) width += inputFieldCharacterSpacing;
             }
         }
     }
