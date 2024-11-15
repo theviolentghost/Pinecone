@@ -102,6 +102,10 @@ struct Input_handler {
     int size;
     int position;
     int maxSize;
+    int lastStartRenderingIndex; //used to keep track of where to start rendering - for preformance
+    int lastEndRenderingIndex; //used to keep track of where to end rendering - for preformance
+    int lastPositionIndex; //used to keep track of where the cursor was last
+    bool renderOverflow; //used to keep track of if the expression is too large to render
     Input_handler* left;
     Input_handler* right;
     Bounds_char* currentBounds;

@@ -26,7 +26,7 @@ typedef enum {
     Character_Minute = (char)143,
     Character_Second = (char)144,
     Character_Delete = (char)145,
-    
+
     // character representaion for keys on TI84 calc
     // technacally not neccesary but for ease of mind
     Character_Left = (char)146,
@@ -54,6 +54,7 @@ typedef enum {
     Character_Ln = (char)168,
     Character_Square = (char)169,
     Character_Reciprocal = (char)170,
+    Character_Absolute = (char)171,
 } CharacterCode;
 
 extern const char version[10];

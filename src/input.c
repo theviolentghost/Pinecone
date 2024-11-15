@@ -408,10 +408,10 @@ void Function_setPosition(Display_char* node, Bounds_char* currentBounds, int or
 
     if(node->data.function->baseInput) {
         if(node->data.function->name == ROOT_FUNCTION) {
-            node->data.function->baseInput->currentBounds->y = y - 3;
+            node->data.function->baseInput->currentBounds->y = y - 3 - getExpressionHeight(node->data.function->baseInput) + getExpressionHeight(node->data.function->input);
             node->data.function->baseInput->currentBounds->x = x - 1;
         } else if(node->data.function->name == LOG_BASE_FUNCTION) {
-            node->data.function->baseInput->currentBounds->y = y + node->getHeight(node) - getExpressionAboveOriginHeight(node->data.function->baseInput);
+            node->data.function->baseInput->currentBounds->y = y + node->getHeight(node) - 4 * node->scale;
             node->data.function->baseInput->currentBounds->x = x + (3 * 8); //3 mono chars
         }
 
@@ -473,6 +473,7 @@ void Function_render(Display_char* node, int offsetX, int offsetY) {
         case LOG_BASE_FUNCTION: 
             textToRender = (FunctionDisplay){"Log", 3}; break;
         case LN_FUNCTION: textToRender = (FunctionDisplay){"Ln", 2}; break;
+        case ABSOLUTE_FUNCTION: 
         case SQRT_FUNCTION:
         case ROOT_FUNCTION:
             break; //just here to suppress warnings
@@ -497,7 +498,7 @@ void Function_render(Display_char* node, int offsetX, int offsetY) {
             int length = bottomOffsetY - topOffsetY;
             gfx_SetColor(inputTextColor);
             gfx_VertLine(node->x + offsetX + Function_getNameWidth(node) + 3,node->y + offsetY + topOffsetY + 4 * node->scale,length); //left 
-            gfx_VertLine(node->x + offsetX + Function_getWidth(node) - (node->data.function->border ? gfx_GetCharWidth(node->data.function->border) : 0) + 4 * node->scale,node->y + offsetY + topOffsetY + 4,length); //right 
+            gfx_VertLine(node->x + offsetX + Function_getWidth(node) - (node->data.function->border ? gfx_GetCharWidth(node->data.function->border) : 0) + 4,node->y + offsetY + topOffsetY + 4,length); //right 
         }
         if(specialRendering) {
             if(functionHasNegativeOnePower(node)) {
@@ -519,6 +520,12 @@ void Function_render(Display_char* node, int offsetX, int offsetY) {
             gfx_VertLine(node->x + offsetX + nameWidth - 2, node->y + offsetY, height); // side bar 
             gfx_HorizLine(node->x + offsetX + nameWidth - 2, node->y + offsetY, inputWidth + 2); // top bar 
         }
+        else if(node->data.function->name == ABSOLUTE_FUNCTION) {
+            int length = getExpressionHeight(node->data.function->input);
+            gfx_SetColor(inputTextColor);
+            gfx_VertLine(node->x + offsetX + 3,node->y + offsetY, length); //left 
+            gfx_VertLine(node->x + offsetX + Function_getWidth(node) - 4,node->y + offsetY,length); //right 
+        }
     }
 
     renderInput(node->data.function->input, false, offsetX, offsetY);
@@ -528,7 +535,7 @@ int Function_getAboveOriginHeight(Display_char* node) {
     int additionalPadding = 0;
 
     if(functionHasNegativeOnePower(node)) additionalPadding += 4 * node->scale; //account for -1
-    else if(node->data.function->name == SQRT_FUNCTION) additionalPadding += 2; // account for top bar of root
+    else if(node->data.function->name == SQRT_FUNCTION || node->data.function->name == ROOT_FUNCTION) additionalPadding += 2; // account for top bar of root
 
     return fmax(getExpressionAboveOriginHeight(node->data.function->input), 4 * node->scale) + additionalPadding; //minimum 4
 }
@@ -546,7 +553,7 @@ int Function_getHeight(Display_char* node) {
     int additionalPadding = 0;
 
     if(functionHasNegativeOnePower(node)) additionalPadding += 4 * node->scale; //account for -1
-    else if(node->data.function->name == SQRT_FUNCTION) additionalPadding += 2; // account for top bar of root
+    else if(node->data.function->name == SQRT_FUNCTION || node->data.function->name == ROOT_FUNCTION) additionalPadding += 2; // account for top bar of root
 
     return fmax(getExpressionHeight(node->data.function->input), 8 * node->scale) + additionalPadding; 
 }
@@ -572,7 +579,7 @@ int Function_getNameWidth(Display_char* node) {
         case SQRT_FUNCTION:
             return 6; //root symbol
         case ABSOLUTE_FUNCTION:
-            return 4;
+            return 0;
         case LN_FUNCTION:
             return 8 * 2;
         case LOG_BASE_FUNCTION:
@@ -702,6 +709,7 @@ char keyToChar(uint8_t key) {
             case sk_0: return Character_Fraction; //fraction - temp
             case sk_1: return Character_Root; // root - temp
             case sk_2: return Character_LogBase; // log base - temp
+            case sk_3: return Character_Absolute; // absoluet func - temp
         }
         if(chars[key]) return chars[key];
     }
@@ -889,6 +897,10 @@ void recordInput(Input_handler* handler, int direction) {
                     Input_handler* function = createFunction(handler, elementToManipulate, LN_FUNCTION, 0, true);
                     return recordInput(function, 1);
                 }
+                case Character_Absolute: {
+                    Input_handler* function = createFunction(handler, elementToManipulate, ABSOLUTE_FUNCTION, 0, true);
+                    return recordInput(function, 1);
+                }
                 case Character_Square: {
 
                 }
@@ -955,7 +967,7 @@ void setInputCharacterPositions(Input_handler* handler, int offsetX, int offsetY
         Display_char* currentChar = &handler->buffer[index];
         if (currentChar && currentChar->type != EMPTY_CHARACTER && currentChar->setPosition) {
             currentChar->setPosition(currentChar, handler->currentBounds, originY, offsetX, offsetY);
-            if(index != handler->size - 1) handler->currentBounds->width += inputFieldCharacterSpacing;
+            if(index != handler->size - 1 && (currentChar->type != GAP_CHARACTER && currentChar->type != EMPTY_CHARACTER)) handler->currentBounds->width += inputFieldCharacterSpacing;
         }
     }
 }
