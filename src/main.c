@@ -68,12 +68,12 @@ int main() {
 
     initializeFonts();
 
-    Input_handler* input = createInputHandler(50);
+    Input_handler* input = createInputHandler(256);
     if (input) {
         input->maxBounds->x = 50;
         input->maxBounds->y = 50;
-        input->maxBounds->width = 220;
-        input->maxBounds->height = 150;
+        input->maxBounds->width = GFX_LCD_WIDTH - 100;
+        input->maxBounds->height = GFX_LCD_HEIGHT - 100;
         input->currentBounds->x = 50;
         input->currentBounds->y = 50;
         input->scale = 1;

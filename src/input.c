@@ -11,6 +11,10 @@
 #include "global.h"
 #include "font.h"
 
+#define MAX_FUNCTION_INPUT_SIZE 128
+#define INITIAL_CAPACITY 16
+#define CAPACITY_INCREASE_FACTOR 24
+
 //todo
 /* 
     - fix jankiness with left and right movement w/ functions
@@ -22,8 +26,6 @@
 void initializeFonts(void){
     gfx_SetFontData(TextData);
 }
-
-int test = 0;
 
 struct {
     int x;
@@ -149,11 +151,19 @@ Input_handler* createFraction(Input_handler* handler, Display_char* elementToMan
     elementToManipulate = &handler->buffer[handler->position];
     elementToManipulate->type = FRACTION_CHARACTER;
     elementToManipulate->data.fraction = malloc(sizeof(Fraction_char));
+
+    if(elementToManipulate->data.fraction == NULL) return NULL;
+
     elementToManipulate->scale = (int)fmax(handler->scale / 2, 1);
 
     // Initialize numerator and denominator
+    elementToManipulate->data.fraction->numerator = NULL;
+    elementToManipulate->data.fraction->denominator = NULL;
+
     elementToManipulate->data.fraction->numerator = createInputHandler(handler->maxSize);
+    if(elementToManipulate->data.fraction->numerator == NULL) return NULL;
     elementToManipulate->data.fraction->denominator = createInputHandler(handler->maxSize);
+    if(elementToManipulate->data.fraction->denominator == NULL) return NULL;
 
     // Set up navigation links
     setupFractionLinks(handler, elementToManipulate);
@@ -195,10 +205,15 @@ Input_handler* createExponent(Input_handler* handler, Display_char* elementToMan
     elementToManipulate = &handler->buffer[handler->position];
     elementToManipulate->type = EXPONENT_CHARACTER;
     elementToManipulate->data.exponent = malloc(sizeof(Exponent_char));
+
+    if (elementToManipulate->data.exponent == NULL) return NULL;
+
     elementToManipulate->scale = (int)fmax(handler->scale / 2, 1);
 
     // Initialize exponent input handler
     elementToManipulate->data.exponent->exponent = createInputHandler(handler->maxSize);
+
+    if(elementToManipulate->data.exponent->exponent == NULL) return NULL;
     
     // Set up navigation links
     setupExponentLinks(handler, elementToManipulate);
@@ -213,36 +228,43 @@ Input_handler* createExponent(Input_handler* handler, Display_char* elementToMan
     return elementToManipulate->data.exponent->exponent;
 }
 Input_handler* createFunction(Input_handler* handler, Display_char* elementToManipulate, FunctionName name, int base, bool hasBorder) {
-    // Validate position for exponent
-    //if (!isValidExponentPosition(handler)) return NULL; //invalid position is when previous char is raw fraction, another exponent, etc
+    if(!elementToManipulate) return NULL;
 
     // Handle existing element
     if (elementToManipulate->type != EMPTY_CHARACTER) {
         if (elementToManipulate->type == GAP_CHARACTER) {
             //Input_shiftRight(handler, handler->position);
             //handler->size--;
-            elementToManipulate = &handler->buffer[handler->position];
+            //elementToManipulate = &handler->buffer[handler->position];
         } else {
             freeCharacter(elementToManipulate);
             handler->size--;
         }
     }
 
-    elementToManipulate->type = FUNCTION_CHARACTER;
     elementToManipulate->data.function = malloc(sizeof(Function_char));
+    if (elementToManipulate->data.function == NULL) return NULL;
+
     elementToManipulate->scale = handler->scale;
     if(hasBorder) elementToManipulate->data.function->border = Charcater_Top_Open_Parenthesis;
     elementToManipulate->data.function->name = name;
 
     // Initialize exponent input handler
-    elementToManipulate->data.function->input = createInputHandler(handler->maxSize);
+    elementToManipulate->data.function->input = createInputHandler(MAX_FUNCTION_INPUT_SIZE);
+    if (elementToManipulate->data.function->input == NULL) return NULL;
 
-    switch(name) {
+    elementToManipulate->data.function->baseInput = NULL;
+
+    if(name == LOG_BASE_FUNCTION || name == ROOT_FUNCTION) {
         //require base inputs
-        case LOG_BASE_FUNCTION:
-        case ROOT_FUNCTION:
-            elementToManipulate->data.function->baseInput = createInputHandler(8); //shoudnt be larger than 8 chars 2 even 
-            break;
+        elementToManipulate->data.function->baseInput = createInputHandler(8); //shoudnt be larger than 8 chars 2 even 
+        if (elementToManipulate->data.function->baseInput == NULL) {
+            freeInputHandler(elementToManipulate->data.function->input);
+            free(elementToManipulate->data.function);
+            elementToManipulate->data.function = NULL;
+            elementToManipulate->type = EMPTY_CHARACTER;
+            return NULL;
+        }
     }
     
     // Set up navigation links
@@ -254,9 +276,11 @@ Input_handler* createFunction(Input_handler* handler, Display_char* elementToMan
     // Initialize placeholder character
     initializeFunctionPlaceholders(elementToManipulate, elementToManipulate->scale);
 
-    //handler->position++;
+    handler->position++;
+    elementToManipulate->type = FUNCTION_CHARACTER;
     handler->size++;
     return elementToManipulate->data.function->input;
+
 }
 
 void renderStringAt(const char* string, int x, int y, int scale) {
@@ -268,7 +292,7 @@ void renderStringAt(const char* string, int x, int y, int scale) {
     }
 }
 void renderCharAt(char character, int x, int y, int scale) {
-    if(x < 0 ||x > GFX_LCD_WIDTH - gfx_GetCharWidth(character) || y < 0 || y > GFX_LCD_HEIGHT - 8 * scale) return; //out of bounds of screen
+    if (x < 0 || x > (int)GFX_LCD_WIDTH - gfx_GetCharWidth(character) || y < 0 || y > (int)GFX_LCD_HEIGHT - 8 * scale) return; // out of bounds of screen
 
     gfx_SetTextScale(1, scale); 
     gfx_SetTextXY(x, y);
@@ -400,19 +424,20 @@ void Function_setPosition(Display_char* node, Bounds_char* currentBounds, int or
     int x = currentBounds->x + currentBounds->width;
     int y = originY - aboveHeight;
 
-    node->data.function->input->currentBounds->y = y + (functionHasNegativeOnePower(node) ? 4 * node->scale : 0) + (node->data.function->name == SQRT_FUNCTION || node->data.function->name == ROOT_FUNCTION ? 2 : 0 ); //account for -2
-    node->data.function->input->currentBounds->x = x;
+    if (node->data.function->input != NULL) {
+        node->data.function->input->currentBounds->y = y + (functionHasNegativeOnePower(node) ? 4 * node->scale : 0) + (node->data.function->name == SQRT_FUNCTION || node->data.function->name == ROOT_FUNCTION ? 2 : 0 ); //account for -2
+        node->data.function->input->currentBounds->x = x;
+        int openBorderWidth = node->data.function->border ? gfx_GetCharWidth(node->data.function->border) : 0;
+        setInputCharacterPositions(node->data.function->input, Function_getNameWidth(node) + openBorderWidth + offsetX, 0);
+    }
 
-    int openBorderWidth = node->data.function->border ? gfx_GetCharWidth(node->data.function->border) : 0;
-    setInputCharacterPositions(node->data.function->input, Function_getNameWidth(node) + openBorderWidth + offsetX, 0);
-
-    if(node->data.function->baseInput) {
+    if(node->data.function->baseInput != NULL) {
         if(node->data.function->name == ROOT_FUNCTION) {
-            node->data.function->baseInput->currentBounds->y = y - 3 - getExpressionHeight(node->data.function->baseInput) + getExpressionHeight(node->data.function->input);
-            node->data.function->baseInput->currentBounds->x = x - 1;
+            node->data.function->baseInput->currentBounds->y = y; //- getExpressionHeight(node->data.function->baseInput) + getExpressionHeight(node->data.function->input);
+            node->data.function->baseInput->currentBounds->x = x + offsetX;
         } else if(node->data.function->name == LOG_BASE_FUNCTION) {
             node->data.function->baseInput->currentBounds->y = y + node->getHeight(node) - 4 * node->scale;
-            node->data.function->baseInput->currentBounds->x = x + (3 * 8); //3 mono chars
+            node->data.function->baseInput->currentBounds->x = x + (3 * 8) + offsetX; //3 mono chars
         }
 
         setInputCharacterPositions(node->data.function->baseInput, 0, 0);
@@ -528,14 +553,19 @@ void Function_render(Display_char* node, int offsetX, int offsetY) {
         }
     }
 
-    renderInput(node->data.function->input, false, offsetX, offsetY);
-    if(node->data.function->baseInput) renderInput(node->data.function->baseInput, false, offsetX, offsetY);
+    if (node->data.function->input != NULL) {
+        renderInput(node->data.function->input, false, offsetX, offsetY);
+    }
+    if (node->data.function->baseInput != NULL) {
+        renderInput(node->data.function->baseInput, false, offsetX, offsetY);
+    }
 }
 int Function_getAboveOriginHeight(Display_char* node) {
     int additionalPadding = 0;
 
     if(functionHasNegativeOnePower(node)) additionalPadding += 4 * node->scale; //account for -1
-    else if(node->data.function->name == SQRT_FUNCTION || node->data.function->name == ROOT_FUNCTION) additionalPadding += 2; // account for top bar of root
+    else if(node->data.function->name == SQRT_FUNCTION ) additionalPadding += 2; // account for top bar of root
+    else if(node->data.function->name == ROOT_FUNCTION) additionalPadding += 3 + getExpressionHeight(node->data.function->baseInput) - node->scale * 8; //account for -2
 
     return fmax(getExpressionAboveOriginHeight(node->data.function->input), 4 * node->scale) + additionalPadding; //minimum 4
 }
@@ -553,7 +583,8 @@ int Function_getHeight(Display_char* node) {
     int additionalPadding = 0;
 
     if(functionHasNegativeOnePower(node)) additionalPadding += 4 * node->scale; //account for -1
-    else if(node->data.function->name == SQRT_FUNCTION || node->data.function->name == ROOT_FUNCTION) additionalPadding += 2; // account for top bar of root
+    else if(node->data.function->name == SQRT_FUNCTION ) additionalPadding += 2; // account for top bar of root
+    else if(node->data.function->name == ROOT_FUNCTION) additionalPadding += 3 + getExpressionHeight(node->data.function->baseInput) - node->scale * 8; //account for -2
 
     return fmax(getExpressionHeight(node->data.function->input), 8 * node->scale) + additionalPadding; 
 }
@@ -720,6 +751,8 @@ char keyToChar(uint8_t key) {
             case sk_Cos: return Character_InvCos; //cos^-1
             case sk_Tan: return Character_InvTan; //tan^-1
             case sk_Square: return Character_SquareRoot;
+            case sk_Log: return Character_TenPower; //10^
+            case sk_Ln: return Character_Euler; //e
         }
     }
     switch(key) {
@@ -787,13 +820,14 @@ void recordInput(Input_handler* handler, int direction) {
     setInputCharacterPositions(leftMostInputHandler, 0, 0);
     positionCursor(handler, handler->position, -leftMostInputHandler->maxBounds->x, -leftMostInputHandler->maxBounds->y); //for position
     renderInput(leftMostInputHandler, true, leftMostInputHandler->maxBounds->width/2 - Cursor.x, leftMostInputHandler->maxBounds->height/2 - Cursor.y - Cursor.height/2);
-    renderCursor(leftMostInputHandler, leftMostInputHandler->maxBounds->width/2 - Cursor.x, leftMostInputHandler->maxBounds->height/2 - Cursor.y - Cursor.height/2);
+    renderCursor(leftMostInputHandler, leftMostInputHandler->maxBounds->width/2 - Cursor.x, leftMostInputHandler->maxBounds->height/2 - Cursor.y - Cursor.height/2, false);
     // Swap to main buffer for display
     gfx_BlitRectangle(gfx_buffer, leftMostInputHandler->maxBounds->x, leftMostInputHandler->maxBounds->y, leftMostInputHandler->maxBounds->width, leftMostInputHandler->maxBounds->height);
 
 
     do {
         key = getKey();
+        bool exceedsMaxSize = handler->size >= handler->maxSize;
 
         if(key && key != previousKey) {
             if(key == sk_Alpha) alpha = !alpha; //toggle
@@ -804,8 +838,12 @@ void recordInput(Input_handler* handler, int direction) {
             if(key != sk_Alpha && alpha && !second) {
                 alpha = false; //reset alpha after key press
             }
-            if(key != sk_2nd && second) {
+            if(key != sk_2nd && second && !alpha) {
                 second = false; //rest second after key press
+            }
+            if(handler->size >= handler->capacity - 3) {
+                bool resized = resizeBuffer(handler, CAPACITY_INCREASE_FACTOR);
+                if(!resized) continue; //skip this key press
             }
             
             Display_char* elementToManipulate = &handler->buffer[handler->position];
@@ -842,73 +880,140 @@ void recordInput(Input_handler* handler, int direction) {
                     
                     break;
                 case Character_Fraction: {
+                    if(exceedsMaxSize) break;
                     //creates fraction in place of elementToManipulate, returns numerator
                     Input_handler* numerator = createFraction(handler, elementToManipulate);
+                    if(!numerator) break;
                     //records input for numeator initially
                     return recordInput(numerator, 1); 
                 }
-                case Character_Power: {                    
+                case Character_Power: {  
+                    if(exceedsMaxSize) break;                  
                     //creates exponent in place of elementToManipulate and returns exponent
                     Input_handler* exponent = createExponent(handler, elementToManipulate);
                     if(!exponent) break;
                     return recordInput(exponent, 1);
                 }
                 case Character_Sin: {
+                    if(exceedsMaxSize) break;
                     Input_handler* function = createFunction(handler, elementToManipulate, SIN_FUNCTION, 0, true);
+                    if(!function) break;
                     return recordInput(function, 1);
                 }
                 case Character_Cos: {
+                    if(exceedsMaxSize) break;
                     Input_handler* function = createFunction(handler, elementToManipulate, COS_FUNCTION, 0, true);
+                    if(!function) break;
                     return recordInput(function, 1);
                 }
                 case Character_Tan: {
+                    if(exceedsMaxSize) break;
                     Input_handler* function = createFunction(handler, elementToManipulate, TAN_FUNCTION, 0, true);
+                    if(!function) break;
                     return recordInput(function, 1);
                 }
                 case Character_InvSin: {
+                    if(exceedsMaxSize) break;
                     Input_handler* function = createFunction(handler, elementToManipulate, INVSIN_FUNCTION, 0, true);
+                    if(!function) break;
                     return recordInput(function, 1);
                 }
                 case Character_InvCos: {
+                    if(exceedsMaxSize) break;
                     Input_handler* function = createFunction(handler, elementToManipulate, INVCOS_FUNCTION, 0, true);
+                    if(!function) break;
                     return recordInput(function, 1);
                 }
                 case Character_InvTan: {
+                    if(exceedsMaxSize) break;
                     Input_handler* function = createFunction(handler, elementToManipulate, INVTAN_FUNCTION, 0, true);
+                    if(!function) break;
                     return recordInput(function, 1);
                 }
                 case Character_SquareRoot: {
+                    if(exceedsMaxSize) break;
                     Input_handler* function = createFunction(handler, elementToManipulate, SQRT_FUNCTION, 0, false);
+                    if(!function) break;
                     return recordInput(function, 1);
                 }
                 case Character_Root: {
+                    if(exceedsMaxSize) break;
                     Input_handler* function = createFunction(handler, elementToManipulate, ROOT_FUNCTION, 0, false);
+                    if(!function) break;
                     return recordInput(function, 1);
                 }
                 case Character_Log: {
+                    if(exceedsMaxSize) break;
                     Input_handler* function = createFunction(handler, elementToManipulate, LOG_FUNCTION, 0, true);
+                    if(!function) break;
                     return recordInput(function, 1);            
                 }
                 case Character_LogBase: {
+                    if(exceedsMaxSize) break;
                     Input_handler* function = createFunction(handler, elementToManipulate, LOG_BASE_FUNCTION, 0, true);
+                    if(!function) break;
                     return recordInput(function, 1);            
                 }
                 case Character_Ln: {
+                    if(exceedsMaxSize) break;
                     Input_handler* function = createFunction(handler, elementToManipulate, LN_FUNCTION, 0, true);
+                    if(!function) break;
                     return recordInput(function, 1);
                 }
                 case Character_Absolute: {
+                    if(exceedsMaxSize) break;
                     Input_handler* function = createFunction(handler, elementToManipulate, ABSOLUTE_FUNCTION, 0, true);
+                    if(!function) break;
                     return recordInput(function, 1);
                 }
                 case Character_Square: {
+                    if(exceedsMaxSize) break;                  
+                    //creates exponent in place of elementToManipulate and returns exponent
+                    Input_handler* exponent = createExponent(handler, elementToManipulate);
+                    if(!exponent) break;
 
+                    Display_char* firstCharacter = &exponent->buffer[0];
+                    initializeDisplayChar(firstCharacter, handler->scale); // "2" character
+                    firstCharacter->type = VARIABLE_CHARACTER;
+                    firstCharacter->data.variable = '2';
+                    //exponent->size++;
+                    exponent->position++;
+
+                    handler->position++;
+                    break;
                 }
                 case Character_Reciprocal: {
+                    if(exceedsMaxSize) break;                  
+                    //creates exponent in place of elementToManipulate and returns exponent
+                    Input_handler* exponent = createExponent(handler, elementToManipulate);
+                    if(!exponent) break;
+
+                    Display_char* firstCharacter = &exponent->buffer[0];
+                    initializeDisplayChar(firstCharacter, handler->scale); // "-" character
+                    firstCharacter->type = VARIABLE_CHARACTER;
+                    firstCharacter->data.variable = '-';
+                    exponent->size++;
+                    exponent->position++;
+
+                    Display_char* secondCharacter = &exponent->buffer[1];
+                    initializeDisplayChar(secondCharacter, handler->scale); // "1" character
+                    secondCharacter->type = VARIABLE_CHARACTER;
+                    secondCharacter->data.variable = '1';
+                    //exponent->size++;
+                    exponent->position++;
+
+                    handler->position++;
+
+                    break;
+                }
+                case Character_TenPower: {
+
+                }
+                case Character_Euler: {
 
                 }
                 default:
-                    if(character != '?' && handler->size < handler->maxSize) {
+                    if(character != '?' && !exceedsMaxSize) {
                         if(elementToManipulate->type != EMPTY_CHARACTER) {
                             if(elementToManipulate->type == GAP_CHARACTER) {
                                 Input_shiftRight(handler, handler->position);
@@ -939,18 +1044,20 @@ void recordInput(Input_handler* handler, int direction) {
             setInputCharacterPositions(leftMostInputHandler, 0, 0);
             positionCursor(handler, handler->position, -leftMostInputHandler->maxBounds->x, -leftMostInputHandler->maxBounds->y); //for position
             renderInput(leftMostInputHandler, true, leftMostInputHandler->maxBounds->width/2 - Cursor.x, leftMostInputHandler->maxBounds->height/2 - Cursor.y - Cursor.height/2);
-            renderCursor(leftMostInputHandler, leftMostInputHandler->maxBounds->width/2 - Cursor.x, leftMostInputHandler->maxBounds->height/2 - Cursor.y - Cursor.height/2);
+            renderCursor(leftMostInputHandler, leftMostInputHandler->maxBounds->width/2 - Cursor.x, leftMostInputHandler->maxBounds->height/2 - Cursor.y - Cursor.height/2, exceedsMaxSize);
             
             gfx_BlitRectangle(gfx_buffer, leftMostInputHandler->maxBounds->x, leftMostInputHandler->maxBounds->y, leftMostInputHandler->maxBounds->width, leftMostInputHandler->maxBounds->height);
+            gfx_SetDrawScreen();
         } 
 
         //render cursor, for blinky blink
         gfx_SetDrawBuffer();
-        renderCursor(leftMostInputHandler, leftMostInputHandler->maxBounds->width/2 - Cursor.x, leftMostInputHandler->maxBounds->height/2 - Cursor.y - Cursor.height/2);
+        renderCursor(leftMostInputHandler, leftMostInputHandler->maxBounds->width/2 - Cursor.x, leftMostInputHandler->maxBounds->height/2 - Cursor.y - Cursor.height/2, exceedsMaxSize);
         gfx_BlitRectangle(gfx_buffer, leftMostInputHandler->maxBounds->x, leftMostInputHandler->maxBounds->y, leftMostInputHandler->maxBounds->width, leftMostInputHandler->maxBounds->height);
+        gfx_SetDrawScreen();
 
         previousKey = key;
-    } while(key != sk_Enter && handler->size < handler->maxSize);
+    } while(key != sk_Enter);
 }
 
 void setInputCharacterPositions(Input_handler* handler, int offsetX, int offsetY) {
@@ -965,9 +1072,10 @@ void setInputCharacterPositions(Input_handler* handler, int offsetX, int offsetY
     //set character positions
     for( int index = 0; index < handler->size; index++) {
         Display_char* currentChar = &handler->buffer[index];
+        Display_char* nextChar = index + 1 < handler->size ? &handler->buffer[index + 1] : NULL;
         if (currentChar && currentChar->type != EMPTY_CHARACTER && currentChar->setPosition) {
             currentChar->setPosition(currentChar, handler->currentBounds, originY, offsetX, offsetY);
-            if(index != handler->size - 1 && (currentChar->type != GAP_CHARACTER && currentChar->type != EMPTY_CHARACTER)) handler->currentBounds->width += inputFieldCharacterSpacing;
+            if(nextChar != NULL && (nextChar->type != GAP_CHARACTER && nextChar->type != EMPTY_CHARACTER && nextChar->type != CURSOR_CHARCATER) && (currentChar->type != GAP_CHARACTER && currentChar->type != EMPTY_CHARACTER && currentChar->type != CURSOR_CHARCATER)) handler->currentBounds->width += inputFieldCharacterSpacing;
         }
     }
 }
@@ -999,20 +1107,22 @@ void renderInput(Input_handler* handler, bool clear, int offsetX, int offsetY) {
 
 }
 void deleteLastCursor(Input_handler* handler) {
-    if(handler->buffer[handler->size - 1].type == CURSOR_CHARCATER) {
+    if(handler->size == 0) return;
+    else if(handler->buffer[handler->size - 1].type == CURSOR_CHARCATER) {
         freeCharacter(&handler->buffer[handler->size - 1]);
         handler->size--;
     }
 }
 void setCursorAtPosition(Input_handler* handler, int position) {
-    if(position < handler->maxSize && (
+    if(
+        position < handler->maxSize && (
             (position == 0 && handler->buffer[position].type == EMPTY_CHARACTER) ||
             (position > 0 && handler->buffer[position - 1].type != EMPTY_CHARACTER && handler->buffer[position - 1].type != CURSOR_CHARCATER && handler->buffer[position].type == EMPTY_CHARACTER)
         ) &&
         handler->size < handler->maxSize
     ) {
 
-        Display_char* elementToManipulate = &handler->buffer[handler->position];
+        Display_char* elementToManipulate = &handler->buffer[position];
 
         elementToManipulate->type = CURSOR_CHARCATER;
         elementToManipulate->data.variable = '0'; //standard char
@@ -1033,7 +1143,7 @@ void positionCursor(Input_handler* handler, int position, int offsetX, int offse
     
     Display_char* refrenceNode = &handler->buffer[position];
 
-    if(!refrenceNode) return;
+    if(!refrenceNode || refrenceNode->type == EMPTY_CHARACTER) return;
 
     Cursor.x = refrenceNode->x + offsetX;
     Cursor.y = refrenceNode->y + offsetY;
@@ -1041,9 +1151,9 @@ void positionCursor(Input_handler* handler, int position, int offsetX, int offse
     Cursor.height = refrenceNode->getHeight(refrenceNode);
     Cursor.node = refrenceNode;
 }
-void renderCursor(Input_handler* handler, int offsetX, int offsetY) {
+void renderCursor(Input_handler* handler, int offsetX, int offsetY, bool nullCursor) {
     Display_char* refrenceNode = Cursor.node;
-    if(!refrenceNode) return;
+    if(!refrenceNode || refrenceNode->type == EMPTY_CHARACTER) return;
 
     int furthestVisualLeftX = handler->buffer[0].x + offsetX;
     if(furthestVisualLeftX > handler->maxBounds->x) {
@@ -1067,6 +1177,10 @@ void renderCursor(Input_handler* handler, int offsetX, int offsetY) {
     int width = Cursor.width;
 
     gfx_SetColor(inputTextColor);
+    if(nullCursor) {
+        gfx_SetColor(100);
+    }
+
     gfx_FillRectangle(refrenceNode->x + offsetX, refrenceNode->y + offsetY, width, Cursor.height);
     if(refrenceNode->type == GAP_CHARACTER) refrenceNode->display(refrenceNode, offsetX, offsetY);
     else if(second && alpha && width >= 6) {
@@ -1094,6 +1208,8 @@ void renderCursor(Input_handler* handler, int offsetX, int offsetY) {
     Cursor.ticker += 2;
 }
 int getExpressionHeight(Input_handler* handler) {
+    if(!handler || !handler->buffer) return 0;
+    
      int maxHeight = 0;
 
     for( int index = 0; index < handler->size; index++) {
@@ -1109,6 +1225,8 @@ int getExpressionHeight(Input_handler* handler) {
     return maxHeight;
 }
 int getExpressionAboveOriginHeight(Input_handler* handler) {
+    if(!handler || !handler->buffer) return 0;
+
      int aboveOriginHeight = 0;
 
     for( int index = 0; index < handler->size; index++) {
@@ -1124,6 +1242,8 @@ int getExpressionAboveOriginHeight(Input_handler* handler) {
     return aboveOriginHeight;
 }
 int getExpressionBelowOriginHeight(Input_handler* handler) {
+    if(!handler || !handler->buffer) return 0;
+
      int belowOriginHeight = 0;
 
     for( int index = 0; index < handler->size; index++) {
@@ -1139,14 +1259,17 @@ int getExpressionBelowOriginHeight(Input_handler* handler) {
     return belowOriginHeight;
 }
 int getExpressionWidth(Input_handler* handler) {
+    if(!handler || !handler->buffer) return 0;
+     
      int width = 0;
 
     for( int index = 0; index < handler->size; index++) {
         Display_char* currentChar = &handler->buffer[index];
+        Display_char* nextChar = index + 1 < handler->size ? &handler->buffer[index + 1] : NULL;
         if (currentChar->type != EMPTY_CHARACTER) {
             if (currentChar->getBelowOriginHeight) {
                 width += currentChar->getWidth(currentChar);
-                if(index != handler->size - 1) width += inputFieldCharacterSpacing;
+                if(nextChar != NULL && (nextChar->type != GAP_CHARACTER && nextChar->type != EMPTY_CHARACTER && nextChar->type != CURSOR_CHARCATER) && (currentChar->type != GAP_CHARACTER && currentChar->type != EMPTY_CHARACTER && currentChar->type != CURSOR_CHARCATER)) width += inputFieldCharacterSpacing;
             }
         }
     }
@@ -1158,16 +1281,15 @@ int getExpressionWidth(Input_handler* handler) {
 
 Input_handler* createInputHandler(int maxSize) {
     Input_handler* handler = malloc(sizeof(Input_handler));
-    if (!handler) {
-        return NULL;
-    }
+    if (!handler) return NULL;
 
     handler->size = 0;
     handler->position = 0;
     handler->maxSize = maxSize;
     handler->scale = 1;
+    handler->capacity = fmin(INITIAL_CAPACITY, maxSize); //ininital capacity
 
-    handler->buffer = calloc(maxSize, sizeof(Display_char));
+    handler->buffer = calloc(handler->capacity, sizeof(Display_char));
     if (!handler->buffer) {
         free(handler);
         return NULL;
@@ -1214,18 +1336,50 @@ Input_handler* createInputHandler(int maxSize) {
     return handler;
 }
 
+bool resizeBuffer(Input_handler* handler, int extraCapacity) {
+    if (!handler || extraCapacity <= 0) return false;
+
+    int newCapacity = fmin(handler->capacity + extraCapacity, handler->maxSize);
+    if (newCapacity == handler->capacity) return true; //at max capacity
+
+    Display_char* newBuffer = realloc(handler->buffer, newCapacity * sizeof(Display_char));
+    if (!newBuffer) {
+        // allocation failure
+        return false;
+    }
+
+    // Zero-initialize the newly allocated portion
+    for (int i = handler->capacity; i < newCapacity; i++) {
+        newBuffer[i].type = EMPTY_CHARACTER;
+        newBuffer[i].display = NULL;
+        newBuffer[i].setPosition = NULL;
+        newBuffer[i].getAboveOriginHeight = NULL;
+        newBuffer[i].getBelowOriginHeight = NULL;
+        newBuffer[i].getWidth = NULL;
+        newBuffer[i].getHeight = NULL;
+    }
+
+    handler->buffer = newBuffer;
+    handler->capacity = newCapacity;
+
+    return true;
+}
+
 void freeFunction(Function_char* function) {
     if (function) {
-        if (function->input) {
-            free(function->input);
+        /*if (function->input != NULL) {
+            freeInputHandler(function->input);
         }
+        if(function->baseInput != NULL) {
+            freeInputHandler(function->baseInput);
+        }*/
         free(function);
     }
 }
 
 void freeExponent(Exponent_char* exponent) {
     if (exponent) {
-        if (exponent->exponent) {
+        if (exponent->exponent != NULL) {
             freeInputHandler(exponent->exponent);
         }
         free(exponent);
@@ -1235,21 +1389,17 @@ void freeExponent(Exponent_char* exponent) {
 void freeFraction(Fraction_char* fraction) {
     if (!fraction) return;
 
-    if (fraction->numerator) {
+    /*if (fraction->numerator != NULL) {
         // Clear links before freeing to prevent circular references
-        fraction->numerator->left = NULL;
-        fraction->numerator->right = NULL;
         freeInputHandler(fraction->numerator);
         fraction->numerator = NULL;  // Prevent dangling pointer
     }
     
-    if (fraction->denominator) {
+    if (fraction->denominator != NULL) {
         // Clear links before freeing to prevent circular references
-        fraction->denominator->left = NULL;
-        fraction->denominator->right = NULL;
         freeInputHandler(fraction->denominator);
         fraction->denominator = NULL;  // Prevent dangling pointer
-    }
+    }*/
     
     free(fraction);
 }

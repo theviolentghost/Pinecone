@@ -55,6 +55,8 @@ typedef enum {
     Character_Square = (char)169,
     Character_Reciprocal = (char)170,
     Character_Absolute = (char)171,
+    Character_TenPower = (char)172,
+    Character_Euler = (char)173,
 } CharacterCode;
 
 extern const char version[10];

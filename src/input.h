@@ -98,14 +98,14 @@ struct Display_char {
 
 struct Input_handler {
     Display_char* buffer;
+    int capacity; //current capacity of the buffer
     int scale;
     int size;
     int position;
     int maxSize;
-    int lastStartRenderingIndex; //used to keep track of where to start rendering - for preformance
-    int lastEndRenderingIndex; //used to keep track of where to end rendering - for preformance
-    int lastPositionIndex; //used to keep track of where the cursor was last
-    bool renderOverflow; //used to keep track of if the expression is too large to render
+    // int lastStartRenderingIndex; //used to keep track of where to start rendering - for preformance
+    // int lastEndRenderingIndex; //used to keep track of where to end rendering - for preformance
+    // int lastPositionIndex; //used to keep track of where the cursor was last
     Input_handler* left;
     Input_handler* right;
     Bounds_char* currentBounds;
@@ -121,10 +121,11 @@ void recordInput(Input_handler* handler, int direction);
 void setInputCharacterPositions(Input_handler* handler, int offsetX, int offsetY);
 void renderInput(Input_handler* handler, bool clear, int offsetX, int offsetY);
 void positionCursor(Input_handler* handler, int position, int offsetX, int offsetY);
-void renderCursor(Input_handler* handler, int offsetX, int offsetY);
+void renderCursor(Input_handler* handler, int offsetX, int offsetY, bool nullCursor);
 void deleteLastCursor(Input_handler* handler);
 void setCursorAtPosition(Input_handler* handler, int position);
 Input_handler* createInputHandler( int maxSize);
+bool resizeBuffer(Input_handler* handler, int extraCapacity);
 int getExpressionHeight(Input_handler* handler);
 int getExpressionAboveOriginHeight(Input_handler* handler);
 int getExpressionBelowOriginHeight(Input_handler* handler);
