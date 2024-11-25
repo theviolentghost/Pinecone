@@ -43,7 +43,7 @@ typedef enum {
     EMPTY_CHARACTER,
     GAP_CHARACTER, //character inbetween fraction + exponents to allow for easy inserting
     PLACEHOLDER_CHARACTER, //the char you will see when fraction numerator/denominator/exponent are empty
-    CURSOR_CHARCATER,
+    CURSOR_CHARACTER,
     VARIABLE_CHARACTER,     
     FUNCTION_CHARACTER, //for functions like abs, cos, etc
     FRACTION_CHARACTER,
@@ -126,6 +126,7 @@ void deleteLastCursor(Input_handler* handler);
 void setCursorAtPosition(Input_handler* handler, int position);
 Input_handler* createInputHandler( int maxSize);
 bool resizeBuffer(Input_handler* handler, int extraCapacity);
+void clearInputHandler(Input_handler* handler, bool havePlaceholder);
 int getExpressionHeight(Input_handler* handler);
 int getExpressionAboveOriginHeight(Input_handler* handler);
 int getExpressionBelowOriginHeight(Input_handler* handler);

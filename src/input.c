@@ -276,7 +276,7 @@ Input_handler* createFunction(Input_handler* handler, Display_char* elementToMan
     // Initialize placeholder character
     initializeFunctionPlaceholders(elementToManipulate, elementToManipulate->scale);
 
-    handler->position++;
+    //handler->position++;
     elementToManipulate->type = FUNCTION_CHARACTER;
     handler->size++;
     return elementToManipulate->data.function->input;
@@ -317,7 +317,7 @@ void Character_render(Display_char* node, int offsetX, int offsetY) {
         return;
     }
 
-    if(node->type == CURSOR_CHARCATER) return;
+    if(node->type == CURSOR_CHARACTER) return;
 
     //char string[2] = {node->data.variable, '\0'};
 
@@ -352,11 +352,11 @@ void Fraction_setPosition(Display_char* node, Bounds_char* currentBounds, int or
 
     node->data.fraction->numerator->currentBounds->y = originY - numHeight;
     node->data.fraction->denominator->currentBounds->y = originY + 2;
-    node->data.fraction->numerator->currentBounds->x = numWidth == maxWidth ? x : x + (maxWidth - numWidth) / 2;
-    node->data.fraction->denominator->currentBounds->x = denWidth == maxWidth ? x : x + (maxWidth - denWidth) / 2;
+    node->data.fraction->numerator->currentBounds->x = (numWidth == maxWidth ? x : x + (maxWidth - numWidth) / 2);
+    node->data.fraction->denominator->currentBounds->x = (denWidth == maxWidth ? x : x + (maxWidth - denWidth) / 2);
 
-    setInputCharacterPositions(node->data.fraction->numerator, offsetX, 0);
-    setInputCharacterPositions(node->data.fraction->denominator, offsetX, 0);
+    setInputCharacterPositions(node->data.fraction->numerator, offsetX, offsetY);
+    setInputCharacterPositions(node->data.fraction->denominator, offsetX, offsetY);
 
     node->x = x + offsetX;
     node->y = y - numHeight + offsetY; 
@@ -622,14 +622,23 @@ int Function_getNameWidth(Display_char* node) {
 
 
 void Input_shiftLeft(Input_handler* handler, int initialPosition) {
-    freeCharacter(&handler->buffer[initialPosition]); //remove starting char
+    Display_char* initialCharacter = &handler->buffer[initialPosition];
+    if(initialCharacter->type == CURSOR_CHARACTER) {
+        if(initialPosition == 0) return;
+        initialPosition--;
+        initialCharacter = &handler->buffer[initialPosition]; // get the character before the cursor
+
+    }
+
+    freeCharacter(initialCharacter); //remove starting char
+    freeCharacter(&handler->buffer[handler->maxSize - 1]); //remove very last char
 
     for(int index = initialPosition; index < handler->size; index++) {
         handler->buffer[index] = handler->buffer[index + 1];
     }
 
-    freeCharacter(&handler->buffer[handler->maxSize - 1]); //remove very last char
-    handler->size--;
+    handler->position = fmin(handler->position, handler->size - 2);
+    handler->size = fmax(handler->size - 1, 0);
 }
 void Input_shiftRight(Input_handler* handler, int initialPosition) {
     handler->size = fmin(handler->size + 1, handler->maxSize);
@@ -657,10 +666,17 @@ int Input_moveLeft(Input_handler* handler) {
         }
         if(handler->buffer[handler->position].type == FUNCTION_CHARACTER) {
             deleteLastCursor(handler);
+            if(handler->buffer[handler->position].data.function->baseInput != NULL && handler->position > 0) {
+                recordInput(handler->buffer[handler->position--].data.function->input, -1);
+                return 1;  // Indicate that recordInput was called
+            }
             recordInput(handler->buffer[handler->position].data.function->input, -1);
             return 1;  // Indicate that recordInput was called
         }
     } else if (handler->left) {
+        /*if(handler->buffer[handler->position].type == FUNCTION_CHARACTER) {
+            if(handler->left->position > 0) handler->left->position--;
+        }*/
         deleteLastCursor(handler);
         recordInput(handler->left, -1);
         return 1;  // Indicate that recordInput was called
@@ -669,21 +685,32 @@ int Input_moveLeft(Input_handler* handler) {
 }
 
 int Input_moveRight(Input_handler* handler) {
-    static bool justOnFunction;
-    if(justOnFunction) {
+    //static bool justOnFunction;
+    /*if(justOnFunction) {
         deleteLastCursor(handler);
         justOnFunction = false;
         //if(handler->buffer[handler->position].data.function->input->buffer[handler->buffer[handler->position].data.function->input->position].type != FUNCTION_CHARACTER) justOnFunction = false;
         recordInput(handler->buffer[handler->position].data.function->input, 1);
         return 1;
-    }
+    }*/
 
-    if (handler->position < handler->size && handler->buffer[handler->position].type != PLACEHOLDER_CHARACTER) {
+    if (handler->position < handler->size && handler->buffer[handler->position].type != PLACEHOLDER_CHARACTER && handler->buffer[handler->position].type != CURSOR_CHARACTER) {
         handler->position++;
 
         if(handler->buffer[handler->position].type == FUNCTION_CHARACTER) {
-            justOnFunction = true;
+            if(handler->buffer[handler->position].data.function->baseInput != NULL) {
+                deleteLastCursor(handler);
+                recordInput(handler->buffer[handler->position++].data.function->baseInput, 1);
+                return 1;  // Indicate that recordInput was called
+            }
             return 0;
+        }
+        if(handler->buffer[handler->position - 1].type == FUNCTION_CHARACTER) {
+            if(handler->buffer[handler->position - 1].data.function->input != NULL) {
+                deleteLastCursor(handler);
+                recordInput(handler->buffer[handler->position - 1].data.function->input, 1);
+                return 1;  // Indicate that recordInput was called
+            }
         }
 
 
@@ -698,7 +725,7 @@ int Input_moveRight(Input_handler* handler) {
             return 1;  // Indicate that recordInput was called
         }
     } else if (handler->right) {
-        if(handler->right->buffer[handler->right->position].type != FUNCTION_CHARACTER) justOnFunction = false;
+        //if(handler->right->buffer[handler->right->position].type != FUNCTION_CHARACTER) justOnFunction = false;
         deleteLastCursor(handler);
         recordInput(handler->right, 1);
         return 1;  // Indicate that recordInput was called
@@ -710,6 +737,7 @@ const char *chars = "\0\0\0\0\0\0\0\0\0\0\"WRMH\0\0?[VQLG\0\0:ZUPKFC\0 YTOJEB\0\
 //mode toggles
 bool second = false; 
 bool alpha = false;
+bool lowercaseAlpha = false;
 
 uint8_t getKey(void) {
     static uint8_t last_key;
@@ -807,7 +835,7 @@ void recordInput(Input_handler* handler, int direction) {
     Cursor.ticker = 0;
     deleteLastCursor(handler);
 
-    if (handler->buffer[handler->position].type == FRACTION_CHARACTER || handler->buffer[handler->position].type == EXPONENT_CHARACTER || (handler->buffer[handler->position].type == FUNCTION_CHARACTER && direction == 1)) {
+    if (handler->buffer[handler->position].type == FRACTION_CHARACTER || handler->buffer[handler->position].type == EXPONENT_CHARACTER) {
         int moved = (direction == 1) ? Input_moveRight(handler) : Input_moveLeft(handler);
         if (moved) return;  // Exit if recordInput was called within move function
     }
@@ -846,23 +874,24 @@ void recordInput(Input_handler* handler, int direction) {
                 if(!resized) continue; //skip this key press
             }
             
+            
             Display_char* elementToManipulate = &handler->buffer[handler->position];
-            deleteLastCursor(handler);
 
             // Handle key codes
             switch(character) {
                 case Character_Delete:
-                    if(handler->position > 0) {
-                        // First properly free the character we're deleting
-                        if(elementToManipulate->type == CURSOR_CHARCATER || elementToManipulate->type == GAP_CHARACTER) break; //cant delete cursor charcater or gap char
+                    if(handler->position >= 0 && handler->size > 0 && handler->buffer[handler->position].type != GAP_CHARACTER) {
+                        //deleteLastCursor(handler);
 
                         Input_shiftLeft(handler, handler->position);
 
-                        //handler->position--;
-                        //handler->size--;
+                        //setCursorAtPosition(handler, handler->size);
                     }
                     break;
-
+                case Character_Clear: 
+                    clearInputHandler(handler, true);
+                    //recordInput(handler, 1);
+                    break;
                 case Character_Left:
                     Cursor.ticker = 0;
                     if (Input_moveLeft(handler)) return;  // Exit if recordInput was called within move function
@@ -1030,12 +1059,12 @@ void recordInput(Input_handler* handler, int direction) {
                         elementToManipulate->data.variable = character;
 
                         handler->size++;
-                        if (Input_moveRight(handler)) return;
+                        handler->position++;
                     }
                     break;
             }
 
-            setCursorAtPosition(handler, handler->position);
+            setCursorAtPosition(handler, handler->position); //enables cursor to move past last character
 
 
             gfx_SetDrawBuffer();
@@ -1048,6 +1077,8 @@ void recordInput(Input_handler* handler, int direction) {
             
             gfx_BlitRectangle(gfx_buffer, leftMostInputHandler->maxBounds->x, leftMostInputHandler->maxBounds->y, leftMostInputHandler->maxBounds->width, leftMostInputHandler->maxBounds->height);
             gfx_SetDrawScreen();
+
+            deleteLastCursor(handler);
         } 
 
         //render cursor, for blinky blink
@@ -1074,8 +1105,10 @@ void setInputCharacterPositions(Input_handler* handler, int offsetX, int offsetY
         Display_char* currentChar = &handler->buffer[index];
         Display_char* nextChar = index + 1 < handler->size ? &handler->buffer[index + 1] : NULL;
         if (currentChar && currentChar->type != EMPTY_CHARACTER && currentChar->setPosition) {
+            //if(currentChar->type == CURSOR_CHARACTER && handler->position != index) continue;
+
             currentChar->setPosition(currentChar, handler->currentBounds, originY, offsetX, offsetY);
-            if(nextChar != NULL && (nextChar->type != GAP_CHARACTER && nextChar->type != EMPTY_CHARACTER && nextChar->type != CURSOR_CHARCATER) && (currentChar->type != GAP_CHARACTER && currentChar->type != EMPTY_CHARACTER && currentChar->type != CURSOR_CHARCATER)) handler->currentBounds->width += inputFieldCharacterSpacing;
+            if(nextChar != NULL && (nextChar->type != GAP_CHARACTER && nextChar->type != EMPTY_CHARACTER && nextChar->type != CURSOR_CHARACTER) && (currentChar->type != GAP_CHARACTER && currentChar->type != EMPTY_CHARACTER && currentChar->type != CURSOR_CHARACTER)) handler->currentBounds->width += inputFieldCharacterSpacing;
         }
     }
 }
@@ -1099,7 +1132,9 @@ void renderInput(Input_handler* handler, bool clear, int offsetX, int offsetY) {
     // Render characters
     for( int index = 0; index < handler->size; index++) {
         Display_char* currentChar = &handler->buffer[index];
-        if (currentChar->type != EMPTY_CHARACTER && currentChar->display) {
+        if (currentChar->type != EMPTY_CHARACTER && currentChar->display ) {
+            //if(currentChar->type == CURSOR_CHARACTER && handler->position != index) continue;
+
             currentChar->display(currentChar, offsetX, offsetY);
         }
     }
@@ -1108,7 +1143,7 @@ void renderInput(Input_handler* handler, bool clear, int offsetX, int offsetY) {
 }
 void deleteLastCursor(Input_handler* handler) {
     if(handler->size == 0) return;
-    else if(handler->buffer[handler->size - 1].type == CURSOR_CHARCATER) {
+    else if(handler->buffer[handler->size - 1].type == CURSOR_CHARACTER) {
         freeCharacter(&handler->buffer[handler->size - 1]);
         handler->size--;
     }
@@ -1117,14 +1152,14 @@ void setCursorAtPosition(Input_handler* handler, int position) {
     if(
         position < handler->maxSize && (
             (position == 0 && handler->buffer[position].type == EMPTY_CHARACTER) ||
-            (position > 0 && handler->buffer[position - 1].type != EMPTY_CHARACTER && handler->buffer[position - 1].type != CURSOR_CHARCATER && handler->buffer[position].type == EMPTY_CHARACTER)
+            (position > 0 && handler->buffer[position - 1].type != EMPTY_CHARACTER && handler->buffer[position - 1].type != CURSOR_CHARACTER && handler->buffer[position].type == EMPTY_CHARACTER)
         ) &&
         handler->size < handler->maxSize
     ) {
 
         Display_char* elementToManipulate = &handler->buffer[position];
 
-        elementToManipulate->type = CURSOR_CHARCATER;
+        elementToManipulate->type = CURSOR_CHARACTER;
         elementToManipulate->data.variable = '0'; //standard char
         elementToManipulate->scale = handler->scale;
         elementToManipulate->setPosition = Character_setPosition;
@@ -1167,7 +1202,7 @@ void renderCursor(Input_handler* handler, int offsetX, int offsetY, bool nullCur
             //render the node, previously erased
             gfx_SetColor(inputBackgroundColor);
             gfx_FillRectangle(refrenceNode->x + offsetX, refrenceNode->y + offsetY, Cursor.width, Cursor.height);
-            if(refrenceNode->type != CURSOR_CHARCATER && refrenceNode->type != GAP_CHARACTER) refrenceNode->display(refrenceNode, offsetX, offsetY);
+            if(refrenceNode->type != CURSOR_CHARACTER && refrenceNode->type != GAP_CHARACTER) refrenceNode->display(refrenceNode, offsetX, offsetY);
         }
 
         Cursor.ticker += 2;
@@ -1269,7 +1304,7 @@ int getExpressionWidth(Input_handler* handler) {
         if (currentChar->type != EMPTY_CHARACTER) {
             if (currentChar->getBelowOriginHeight) {
                 width += currentChar->getWidth(currentChar);
-                if(nextChar != NULL && (nextChar->type != GAP_CHARACTER && nextChar->type != EMPTY_CHARACTER && nextChar->type != CURSOR_CHARCATER) && (currentChar->type != GAP_CHARACTER && currentChar->type != EMPTY_CHARACTER && currentChar->type != CURSOR_CHARCATER)) width += inputFieldCharacterSpacing;
+                if(nextChar != NULL && (nextChar->type != GAP_CHARACTER && nextChar->type != EMPTY_CHARACTER && nextChar->type != CURSOR_CHARACTER) && (currentChar->type != GAP_CHARACTER && currentChar->type != EMPTY_CHARACTER && currentChar->type != CURSOR_CHARACTER)) width += inputFieldCharacterSpacing;
             }
         }
     }
@@ -1277,7 +1312,27 @@ int getExpressionWidth(Input_handler* handler) {
     return width;
 }
 
+void clearInputHandler(Input_handler* handler, bool havePlaceholder) {
+    if (!handler || !handler->buffer) return;
 
+    for (int i = 0; i < handler->size; i++) {
+        freeCharacter(&handler->buffer[i]);
+    }
+
+    handler->position = 0;
+
+    if(havePlaceholder) {
+        Display_char* placeholder = &handler->buffer[0];
+        initializeDisplayChar(placeholder, handler->scale);
+        placeholder->type = PLACEHOLDER_CHARACTER;
+        placeholder->data.variable = Character_PlaceHolder;
+
+        handler->size = 1;
+        return;
+    }
+
+    handler->size = 0;
+}
 
 Input_handler* createInputHandler(int maxSize) {
     Input_handler* handler = malloc(sizeof(Input_handler));
@@ -1435,7 +1490,7 @@ void freeCharacter(Display_char* character) {
             
         case VARIABLE_CHARACTER:
         case EMPTY_CHARACTER:
-        case CURSOR_CHARCATER:
+        case CURSOR_CHARACTER:
         case GAP_CHARACTER:
         case PLACEHOLDER_CHARACTER:
             break;  // No dynamic memory to free

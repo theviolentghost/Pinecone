@@ -7,7 +7,10 @@
 #include <graphx.h>
 #include <keypadc.h>
 #include <tice.h>
+
 #include "input.h"
+#include "global.h"
+#include "graph/display.h"
 
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -49,21 +52,11 @@ Catalog_Function_Pointer getFunction(const char* name) {
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-int main() {
-    //float variables[26]= {0};
-    //variables['x' - 'a'] = 78; //set x 
+float circle_function(float x, float y) {
+    return x*x + y*y - 1;
+}
 
-    /*Node* root = Operator('/', Constant(5), Variable('x'));
-    printf("%f\n", root->evaluate(root, variables));*/
-
-    /*Node* c = Constant(.1285548112);
-    printf("%s", Constant_toString(c, true));*/
-
-    /*Node* root = Operator('-', Variable('x'), Constant(5));
-    //Node* final = root->derivative(root, 'x');
-
-    printf("%s", Node_toString(root, false));*/
-
+/*int main() {
     gfx_Begin();
 
     initializeFonts();
@@ -83,6 +76,6 @@ int main() {
     gfx_End();
 
     return 0;
-}
+}*/
 
 
