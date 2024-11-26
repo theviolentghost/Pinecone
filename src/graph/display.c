@@ -4,7 +4,19 @@
 #include <tice.h>
 #include <math.h>
 
-#define MAX_DEPTH 6
+#define MAX_DEPTH 7
+
+float windowToPixelRatioX = 1;
+float windowToPixelRatioY = 1;
+float minimumPixelRatio = 1;
+
+#define planeToScreenX(x) ((int)((x - ViewWindow.minX) * windowToPixelRatioX))
+#define planeToScreenY(y) ((int)((y - ViewWindow.minY) * windowToPixelRatioY))
+
+// Function prototypes
+void processRegion(float x, float y, float size, uint8_t depth, float (*function)(float, float));
+void processChildOfRegion(float x, float y, float size, uint8_t depth, float (*function)(float, float));
+void renderRegion(float x, float y, float size, float f1, float f2, float f3, float f4);
 
 struct {
     float minX, minY, maxX, maxY;
@@ -49,22 +61,33 @@ float compute_lipschitz_constant(float (*function)(float, float), float x_min, f
     return max_grad;
 }
 
-void renderRegion(float x, float y, float size, uint8_t depth, float (*function)(float, float)) {
-    if (depth >= MAX_DEPTH || size < 0.01f) {
-        // Convert coordinates to screen pixels
-        float windowToPixelRatioX = (float)GFX_LCD_WIDTH / (ViewWindow.maxX - ViewWindow.minX);
-        float windowToPixelRatioY = (float)GFX_LCD_HEIGHT / (ViewWindow.maxY - ViewWindow.minY);
+void processChildOfRegion(float x, float y, float size, uint8_t depth, float (*function)(float, float)) {
+    float halfSize = size / 2.0f;
+    uint8_t nextDepth = depth + 1;
 
-        int x1 = (int)((x - ViewWindow.minX) * windowToPixelRatioX);
-        int y1 = (int)((y - ViewWindow.minY) * windowToPixelRatioY);
-        int width = (int)(size * windowToPixelRatioX) + 1;
-        int height = (int)(size * windowToPixelRatioY) + 1;
+    processRegion(x, y, halfSize, nextDepth, function);
+    processRegion(x + halfSize, y, halfSize, nextDepth, function);
+    processRegion(x, y + halfSize, halfSize, nextDepth, function);
+    processRegion(x + halfSize, y + halfSize, halfSize, nextDepth, function);
+}
 
-        // Choose color based on the function value at the center
-        float centerX = x + size / 2.0f;
-        float centerY = y + size / 2.0f;
-        gfx_SetColor(function(centerX, centerY) <= 0.0f ? 100 : 200);
-        gfx_FillRectangle(x1, y1, width, height);
+void processRegion(float x, float y, float size, uint8_t depth, float (*function)(float, float)) {
+    if (depth >= MAX_DEPTH || size * minimumPixelRatio <= 1) {
+        // render region 
+        // should have contour line unless depth is 0
+        if(depth == 0) return;
+
+        float x1 = x;
+        float y1 = y;
+        float x2 = x + size;
+        float y2 = y + size;
+
+        float f1 = function(x1, y1);
+        float f2 = function(x2, y1);
+        float f3 = function(x1, y2);
+        float f4 = function(x2, y2);
+
+        renderRegion(x, y, size, f1, f2, f3, f4);
         return;
     }
 
@@ -73,7 +96,6 @@ void renderRegion(float x, float y, float size, uint8_t depth, float (*function)
     float x2 = x + size;
     float y2 = y + size;
 
-    // Sample corners of the region
     float f1 = function(x1, y1);
     float f2 = function(x2, y1);
     float f3 = function(x1, y2);
@@ -82,6 +104,13 @@ void renderRegion(float x, float y, float size, uint8_t depth, float (*function)
     // Find minimum and maximum sampled values
     float sampled_min = fminf(fminf(f1, f2), fminf(f3, f4));
     float sampled_max = fmaxf(fmaxf(f1, f2), fmaxf(f3, f4));
+
+    if(sampled_min <= 0 && sampled_max >= 0) {
+        // region has contour line
+        // skip Lipschitz constant calculation (expensive)
+        processChildOfRegion(x, y, size, depth, function);
+        return;
+    }
 
     // Calculate Lipschitz constant for this region
     float L = compute_lipschitz_constant(function, x1, x2, y1, y2);
@@ -93,37 +122,127 @@ void renderRegion(float x, float y, float size, uint8_t depth, float (*function)
     float possible_min = sampled_min - L * region_diameter;
     float possible_max = sampled_max + L * region_diameter;
 
-    // Decide whether to subdivide
-    if (possible_min <= 0.0f && possible_max >= 0.0f) {
-        // Subdivide and render children
-        float halfSize = size / 2.0f;
-        uint8_t nextDepth = depth + 1;
+   if(possible_min <= 0 && possible_max >= 0) {
+        // region has contour line
+        processChildOfRegion(x, y, size, depth, function);
+        return;
+    }
 
-        renderRegion(x, y, halfSize, nextDepth, function);
-        renderRegion(x + halfSize, y, halfSize, nextDepth, function);
-        renderRegion(x, y + halfSize, halfSize, nextDepth, function);
-        renderRegion(x + halfSize, y + halfSize, halfSize, nextDepth, function);
-    } else {
-        if(possible_min > 0) return;
-        // Convert coordinates to screen pixels
-        float windowToPixelRatioX = (float)GFX_LCD_WIDTH / (ViewWindow.maxX - ViewWindow.minX);
-        float windowToPixelRatioY = (float)GFX_LCD_HEIGHT / (ViewWindow.maxY - ViewWindow.minY);
+    // has no contour line
+    return;
+}
 
-        int x1_pix = (int)((x - ViewWindow.minX) * windowToPixelRatioX);
-        int y1_pix = (int)((y - ViewWindow.minY) * windowToPixelRatioY);
-        int width = (int)(size * windowToPixelRatioX) + 1;
-        int height = (int)(size * windowToPixelRatioY) + 1;
+float interpolate(float f1, float f2, float p1, float p2) {
+    if (fabsf(f2 - f1) < 0.0001f) {
+        // If function values are very close, return midpoint
+        return (p1 + p2) * 0.5f;
+    }
+    float t = -f1 / (f2 - f1); // Assuming we are looking for the zero crossing (isoLevel = 0)
+    return p1 + t * (p2 - p1);
+}
 
-        // Choose color based on the possible_min and possible_max
-        gfx_SetColor(possible_min > 0.0f ? 200 : 100);
-        gfx_FillRectangle(x1_pix, y1_pix, width, height);
+void renderRegion(float x, float y, float size, float f1, float f2, float f3, float f4) {
+    float isoLevel = 0.0f;  // Threshold for contour line
+    int squareIndex = 0;
+
+    // Determine the case index based on corner values
+    if (f1 < isoLevel) squareIndex |= 1;
+    if (f2 < isoLevel) squareIndex |= 2;
+    if (f3 < isoLevel) squareIndex |= 4;
+    if (f4 < isoLevel) squareIndex |= 8;
+
+    // Early exit if the square is entirely inside or outside the contour
+    if (squareIndex == 0 || squareIndex == 15)
+        return;
+
+    // Corner positions
+    float x0 = x;
+    float y0 = y;
+    float x1 = x + size;
+    float y1 = y + size;
+
+    //gfx_Rectangle_NoClip(planeToScreenX(x0), planeToScreenY(y0), (int)(size * windowToPixelRatioX) + 1, (int)(size * windowToPixelRatioY) + 1);
+
+
+    switch (squareIndex) {
+        case 1: {
+            // Case 1: Bottom-left corner inside the contour
+            float leftY = fminf(fmaxf(interpolate(f1, f3, y0, y1), y0), y1);
+            float bottomX = fminf(fmaxf(interpolate(f1, f2, x0, x1), x0), x1);
+
+            gfx_Line_NoClip(planeToScreenX(x0), planeToScreenY(leftY), planeToScreenX(bottomX), planeToScreenY(y0)); 
+            break;
+        }
+        case 2: {
+            // Case 2: Bottom-right corner inside the contour
+            float rightY = fminf(fmaxf(interpolate(f2, f4, y0, y1), y0), y1);
+            float bottomX = fminf(fmaxf(interpolate(f1, f2, x0, x1), x0), x1);
+
+            gfx_Line_NoClip(planeToScreenX(bottomX), planeToScreenY(y0), planeToScreenX(x1), planeToScreenY(rightY));
+            break;
+        }
+        case 3: {
+            // Case 3: Bottom-left and bottom-right corners inside the contour
+            float leftY = fminf(fmaxf(interpolate(f1, f3, y0, y1), y0), y1);
+            float rightY = fminf(fmaxf(interpolate(f2, f4, y0, y1), y0), y1);
+
+            gfx_Line_NoClip(planeToScreenX(x0), planeToScreenY(leftY), planeToScreenX(x1), planeToScreenY(rightY));
+            break;
+        }
+        case 4: {
+            // Case 4: Top-right corner inside the contour
+            float topX = fminf(fmaxf(interpolate(f3, f4, x0, x1), x0), x1);
+            float rightY = fminf(fmaxf(interpolate(f2, f4, y0, y1), y0), y1);
+
+            gfx_Line_NoClip(planeToScreenX(topX), planeToScreenY(y0), planeToScreenX(x1), planeToScreenY(rightY));
+            break;
+        }
+        /*case 5:
+            // Case 5: Bottom-left and top-right corners inside the contour
+            break;
+        case 6:
+            // Case 6: Bottom-right and top-right corners inside the contour
+            break;
+        case 7:
+            // Case 7: Bottom-left, bottom-right, and top-right corners inside the contour
+            break;
+        case 8:
+            // Case 8: Top-left corner inside the contour
+            break;
+        case 9:
+            // Case 9: Bottom-left and top-left corners inside the contour
+            break;
+        case 10:
+            // Case 10: Bottom-right and top-left corners inside the contour
+            break;
+        case 11:
+            // Case 11: Bottom-left, bottom-right, and top-left corners inside the contour
+            break;
+        case 12:
+            // Case 12: Top-right and top-left corners inside the contour
+            break;
+        case 13:
+            // Case 13: Bottom-left, top-right, and top-left corners inside the contour
+            break;
+        case 14:
+            // Case 14: Bottom-right, top-right, and top-left corners inside the contour
+            break;*/
+
+        default:
+            // Invalid case (should not happen)
+            gfx_Rectangle_NoClip(planeToScreenX(x0), planeToScreenY(y0), (int)(size * windowToPixelRatioX) + 1, (int)(size * windowToPixelRatioY) + 1);
+            break;
     }
 }
 
 void renderImplicitFunction() {
+    windowToPixelRatioX = (float)GFX_LCD_WIDTH / (ViewWindow.maxX - ViewWindow.minX);
+    windowToPixelRatioY = (float)GFX_LCD_HEIGHT / (ViewWindow.maxY - ViewWindow.minY);
+    minimumPixelRatio = fminf(windowToPixelRatioX, windowToPixelRatioY);
+
     gfx_Begin();
 
-    renderRegion(ViewWindow.minX, ViewWindow.minY,
+    processRegion(ViewWindow.minX, ViewWindow.minY,
                  fmaxf(ViewWindow.maxX - ViewWindow.minX, ViewWindow.maxY - ViewWindow.minY),
                  0, f);
 
