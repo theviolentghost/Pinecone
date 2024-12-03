@@ -7,6 +7,7 @@
 
 #include "../input.h"
 #include "../global.h"
+#include "fastMath.h"
 
 #define HASH_TABLE_SIZE 256 
 
@@ -96,19 +97,19 @@ bool containsVariable(Node* node, char* variable);
 
 Node* Constant(double value);
 double Constant_evaluate(Node* node);
-float Constant_evaluateFloat(Node* node);
+fast_int Constant_evaluateFastInt(Node* node);
 Node* Constant_derivative(Node* node, char var);
 Node* Constant_antiderivative(Node* node, char var);
 
 Node* Variable(char name);
 double Variable_evaluate(Node* node);
-float Variable_evaluateFloat(Node* node);
+fast_int Variable_evaluateFastInt(Node* node);
 Node* Variable_derivative(Node* node, char var);
 Node* Variable_antiderivative(Node* node, char var);
 
 Node* VariableFlat(char name);
 double VariableFlat_evaluate(Node* node);
-float VariableFlat_evaluateFloat(Node* node);
+fast_int VariableFlat_evaluateFastInt(Node* node);
 Node* VariableFlat_derivative(Node* node, char var);
 Node* VariableFlat_antiderivative(Node* node, char var);
 
@@ -116,9 +117,9 @@ Node* Function(FunctionName name, Node* input, Node* base);
 double Function_Sin_evaluate(Node* node);
 double Function_Cos_evaluate(Node* node);
 double Function_Tan_evaluate(Node* node);
-float Function_Sin_evaluateFloat(Node* node);
-float Function_Cos_evaluateFloat(Node* node);
-float Function_Tan_evaluateFloat(Node* node);
+fast_int Function_Sin_evaluateFastInt(Node* node);
+fast_int Function_Cos_evaluateFastInt(Node* node);
+fast_int Function_Tan_evaluateFastInt(Node* node);
 Node* Function_derivative(Node* node, char var);
 Node* Function_antiderivative(Node* node, char var);
 
@@ -126,9 +127,9 @@ Node* FunctionFlat(FunctionName name, Node* input, float base);
 double FunctionFlat_Sin_evaluate(Node* node);
 double FunctionFlat_Cos_evaluate(Node* node);
 double FunctionFlat_Tan_evaluate(Node* node);
-float FunctionFlat_Sin_evaluateFloat(Node* node);
-float FunctionFlat_Cos_evaluateFloat(Node* node);
-float FunctionFlat_Tan_evaluateFloat(Node* node);
+fast_int FunctionFlat_Sin_evaluateFastInt(Node* node);
+fast_int FunctionFlat_Cos_evaluateFastInt(Node* node);
+fast_int FunctionFlat_Tan_evaluateFastInt(Node* node);
 Node* FunctionFlat_derivative(Node* node, char var);
 Node* FunctionFlat_antiderivative(Node* node, char var);
 
@@ -138,12 +139,12 @@ double Operator_Subtract_evaluate(Node* node);
 double Operator_Multiply_evaluate(Node* node);
 double Operator_Divide_evaluate(Node* node);
 double Operator_Power_evaluate(Node* node);
-float Operator_Add_evaluateFloat(Node* node);
-float Operator_Subtract_evaluateFloat(Node* node);
-float Operator_Multiply_evaluateFloat(Node* node);
-float Operator_Divide_evaluateFloat(Node* node);
-float Operator_Power_evaluateFloat(Node* node);
+fast_int Operator_Add_evaluateFastInt(Node* node);
+fast_int Operator_Subtract_evaluateFastInt(Node* node);
+fast_int Operator_Multiply_evaluateFastInt(Node* node);
+fast_int Operator_Divide_evaluateFastInt(Node* node);
+fast_int Operator_Power_evaluateFastInt(Node* node);
 Node* Operator_derivative(Node* node, char var);
 Node* Operator_antiderivative(Node* node, char var);
 
-#endif
+#endif // AST_H

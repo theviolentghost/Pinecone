@@ -5,6 +5,7 @@
 #include "../input.h"
 #include "AST.h"
 #include "../global.h"
+#include "fastMath.h"
 
 VariableLookup* createVariableLookup() {
     VariableLookup* lookup = (VariableLookup*)malloc(sizeof(VariableLookup));
@@ -76,7 +77,7 @@ struct Node {
     } data;
 
     double (*evaluate)(Node*);
-    float (*evaluateFloat)(Node*);
+    fast_int (*evaluateFastInt)(Node*);
     Node* (*derivative)(Node*, char);
     Node* (*antiderivative)(Node*, char);
 };
@@ -128,7 +129,7 @@ Node* Constant(double value) {
         node->type = NODE_CONSTANT;
         node->data.constant.value = value;
         node->evaluate = Constant_evaluate;
-        node->evaluateFloat = Constant_evaluateFloat;
+        node->evaluateFastInt = Constant_evaluateFastInt;
         node->derivative = Constant_derivative;
         node->antiderivative = Constant_antiderivative;
     }
@@ -137,8 +138,8 @@ Node* Constant(double value) {
 double Constant_evaluate(Node* node) {
     return node->data.constant.value;
 }
-float Constant_evaluateFloat(Node* node) {
-    return (float)node->data.constant.value;
+fast_int Constant_evaluateFastInt(Node* node) {
+    return (fast_int)node->data.constant.value;
 }
 Node* Constant_derivative(Node* node, char var) {
     return Constant(0);
@@ -160,7 +161,7 @@ Node* Variable(char name) {
         node->data.variable.coefficient = Constant(1);
         node->data.variable.exponent = Constant(1);
         node->evaluate = Variable_evaluate;
-        node->evaluateFloat = Variable_evaluateFloat;
+        node->evaluateFastInt = Variable_evaluateFastInt;
         node->derivative = Variable_derivative;
         node->antiderivative = Variable_antiderivative;
     }
@@ -172,11 +173,11 @@ double Variable_evaluate(Node* node) {
     double variableValue = findVariableEntry(Variables, node->data.variable.name)->value;
     return coefficient * pow(variableValue, exponent);
 }
-float Variable_evaluateFloat(Node* node) {
-    float coefficient = node->data.variable.coefficient->evaluateFloat(node->data.variable.coefficient);
-    float exponent = node->data.variable.exponent->evaluateFloat(node->data.variable.exponent);
-    float variableValue = (float)findVariableEntry(Variables, node->data.variable.name)->value;
-    return coefficient * powf(variableValue, exponent);
+fast_int Variable_evaluateFastInt(Node* node) {
+    fast_int coefficient = node->data.variable.coefficient->evaluateFastInt(node->data.variable.coefficient);
+    fast_int exponent = node->data.variable.exponent->evaluateFastInt(node->data.variable.exponent);
+    fast_int variableValue = (fast_int)findVariableEntry(Variables, node->data.variable.name)->value;
+    return coefficient * pow(variableValue, exponent);
 }
 Node* Variable_derivative(Node* node, char var) {
     return NULL;
@@ -198,7 +199,7 @@ Node* VariableFlat(char name) {
         node->data.variableFlat.coefficient = 1;
         node->data.variableFlat.exponent = 1;
         node->evaluate = VariableFlat_evaluate;
-        node->evaluateFloat = VariableFlat_evaluateFloat;
+        node->evaluateFastInt = VariableFlat_evaluateFastInt;
         node->derivative = VariableFlat_derivative;
         node->antiderivative = VariableFlat_antiderivative;
     }
@@ -207,8 +208,8 @@ Node* VariableFlat(char name) {
 double VariableFlat_evaluate(Node* node) {
     return node->data.variableFlat.coefficient * pow(node->data.variableFlat.name, node->data.variableFlat.exponent);
 }
-float VariableFlat_evaluateFloat(Node* node) {
-    return (float)node->data.variableFlat.coefficient * powf(node->data.variableFlat.name, node->data.variableFlat.exponent);
+fast_int VariableFlat_evaluateFastInt(Node* node) {
+    return (fast_int)node->data.variableFlat.coefficient * pow(node->data.variableFlat.name, node->data.variableFlat.exponent);
 }
 Node* VariableFlat_derivative(Node* node, char var) {
     return NULL;
@@ -234,15 +235,15 @@ Node* Function(FunctionName name, Node* input, Node* base) {
         switch(name) {
             case SIN_FUNCTION:
                 node->evaluate = Function_Sin_evaluate;
-                node->evaluateFloat = Function_Sin_evaluateFloat;
+                node->evaluateFastInt = Function_Sin_evaluateFastInt;
                 break;
             case COS_FUNCTION:
                 node->evaluate = Function_Cos_evaluate;
-                node->evaluateFloat = Function_Cos_evaluateFloat;
+                node->evaluateFastInt = Function_Cos_evaluateFastInt;
                 break;
             case TAN_FUNCTION:
                 node->evaluate = Function_Tan_evaluate;
-                node->evaluateFloat = Function_Tan_evaluateFloat;
+                node->evaluateFastInt = Function_Tan_evaluateFastInt;
                 break;
         }
         node->derivative = Function_derivative;
@@ -254,9 +255,9 @@ double Function_Sin_evaluate(Node* node) { node->data.function.coefficient->eval
 double Function_Cos_evaluate(Node* node) { node->data.function.coefficient->evaluate(node->data.function.coefficient) * pow(cos(node->data.function.input->evaluate(node->data.function.input)), node->data.function.exponent->evaluate(node->data.function.exponent)); }
 double Function_Tan_evaluate(Node* node) { node->data.function.coefficient->evaluate(node->data.function.coefficient) * pow(tan(node->data.function.input->evaluate(node->data.function.input)), node->data.function.exponent->evaluate(node->data.function.exponent)); }
 
-float Function_Sin_evaluateFloat(Node* node) { node->data.function.coefficient->evaluateFloat(node->data.function.coefficient) * powf(sinf(node->data.function.input->evaluateFloat(node->data.function.input)), node->data.function.exponent->evaluateFloat(node->data.function.exponent)); }
-float Function_Cos_evaluateFloat(Node* node) { node->data.function.coefficient->evaluateFloat(node->data.function.coefficient) * powf(cosf(node->data.function.input->evaluateFloat(node->data.function.input)), node->data.function.exponent->evaluateFloat(node->data.function.exponent)); }
-float Function_Tan_evaluateFloat(Node* node) { node->data.function.coefficient->evaluateFloat(node->data.function.coefficient) * powf(tanf(node->data.function.input->evaluateFloat(node->data.function.input)), node->data.function.exponent->evaluateFloat(node->data.function.exponent)); }
+fast_int Function_Sin_evaluateFastInt(Node* node) { node->data.function.coefficient->evaluateFastInt(node->data.function.coefficient) * pow(sin(node->data.function.input->evaluateFastInt(node->data.function.input)), node->data.function.exponent->evaluateFastInt(node->data.function.exponent)); }
+fast_int Function_Cos_evaluateFastInt(Node* node) { node->data.function.coefficient->evaluateFastInt(node->data.function.coefficient) * pow(cos(node->data.function.input->evaluateFastInt(node->data.function.input)), node->data.function.exponent->evaluateFastInt(node->data.function.exponent)); }
+fast_int Function_Tan_evaluateFastInt(Node* node) { node->data.function.coefficient->evaluateFastInt(node->data.function.coefficient) * pow(tan(node->data.function.input->evaluateFastInt(node->data.function.input)), node->data.function.exponent->evaluateFastInt(node->data.function.exponent)); }
 
 Node* Function_derivative(Node* node, char var) {
     return NULL;
@@ -281,15 +282,15 @@ Node* FunctionFlat(FunctionName name, Node* input, float base) {
         switch(name) {
             case SIN_FUNCTION:
                 node->evaluate = FunctionFlat_Sin_evaluate;
-                node->evaluateFloat = FunctionFlat_Sin_evaluateFloat;
+                node->evaluateFastInt = FunctionFlat_Sin_evaluateFastInt;
                 break;
             case COS_FUNCTION:
                 node->evaluate = FunctionFlat_Cos_evaluate;
-                node->evaluateFloat = FunctionFlat_Cos_evaluateFloat;
+                node->evaluateFastInt = FunctionFlat_Cos_evaluateFastInt;
                 break;
             case TAN_FUNCTION:
                 node->evaluate = FunctionFlat_Tan_evaluate;
-                node->evaluateFloat = FunctionFlat_Tan_evaluateFloat;
+                node->evaluateFastInt = FunctionFlat_Tan_evaluateFastInt;
                 break;
         }
         node->derivative = FunctionFlat_derivative;
@@ -301,9 +302,9 @@ double FunctionFlat_Sin_evaluate(Node* node) { node->data.functionFlat.coefficie
 double FunctionFlat_Cos_evaluate(Node* node) { node->data.functionFlat.coefficient * pow(cos(node->data.functionFlat.input->evaluate(node->data.functionFlat.input)), node->data.functionFlat.exponent); }
 double FunctionFlat_Tan_evaluate(Node* node) { node->data.functionFlat.coefficient * pow(tan(node->data.functionFlat.input->evaluate(node->data.functionFlat.input)), node->data.functionFlat.exponent); }
 
-float FunctionFlat_Sin_evaluateFloat(Node* node) { node->data.functionFlat.coefficient * powf(sinf(node->data.functionFlat.input->evaluateFloat(node->data.functionFlat.input)), node->data.functionFlat.exponent); }
-float FunctionFlat_Cos_evaluateFloat(Node* node) { node->data.functionFlat.coefficient * powf(cosf(node->data.functionFlat.input->evaluateFloat(node->data.functionFlat.input)), node->data.functionFlat.exponent); }
-float FunctionFlat_Tan_evaluateFloat(Node* node) { node->data.functionFlat.coefficient * powf(tanf(node->data.functionFlat.input->evaluateFloat(node->data.functionFlat.input)), node->data.functionFlat.exponent); }
+fast_int FunctionFlat_Sin_evaluateFastInt(Node* node) { node->data.functionFlat.coefficient * pow(sin(node->data.functionFlat.input->evaluateFastInt(node->data.functionFlat.input)), node->data.functionFlat.exponent); }
+fast_int FunctionFlat_Cos_evaluateFastInt(Node* node) { node->data.functionFlat.coefficient * pow(cos(node->data.functionFlat.input->evaluateFastInt(node->data.functionFlat.input)), node->data.functionFlat.exponent); }
+fast_int FunctionFlat_Tan_evaluateFastInt(Node* node) { node->data.functionFlat.coefficient * pow(tan(node->data.functionFlat.input->evaluateFastInt(node->data.functionFlat.input)), node->data.functionFlat.exponent); }
 
 Node* FunctionFlat_derivative(Node* node, char var) {
     return NULL;
@@ -327,23 +328,23 @@ Node* Operator(OperationType operation, Node* left, Node* right) {
         switch(operation) {
             case OPERATION_ADD:
                 node->evaluate = Operator_Add_evaluate;
-                node->evaluateFloat = Operator_Add_evaluateFloat;
+                node->evaluateFastInt = Operator_Add_evaluateFastInt;
                 break;
             case OPERATION_SUBTRACT:
                 node->evaluate = Operator_Subtract_evaluate;
-                node->evaluateFloat = Operator_Subtract_evaluateFloat;
+                node->evaluateFastInt = Operator_Subtract_evaluateFastInt;
                 break;
             case OPERATION_MULTIPLY:
                 node->evaluate = Operator_Multiply_evaluate;
-                node->evaluateFloat = Operator_Multiply_evaluateFloat;
+                node->evaluateFastInt = Operator_Multiply_evaluateFastInt;
                 break;
             case OPERATION_DIVIDE:
                 node->evaluate = Operator_Divide_evaluate;
-                node->evaluateFloat = Operator_Divide_evaluateFloat;
+                node->evaluateFastInt = Operator_Divide_evaluateFastInt;
                 break;
             case OPERATION_POWER:
                 node->evaluate = Operator_Power_evaluate;
-                node->evaluateFloat = Operator_Power_evaluateFloat;
+                node->evaluateFastInt = Operator_Power_evaluateFastInt;
                 break;
         }
         node->derivative = Operator_derivative;
@@ -357,11 +358,11 @@ double Operator_Multiply_evaluate(Node* node) { node->data.operator.left->evalua
 double Operator_Divide_evaluate(Node* node) { node->data.operator.left->evaluate(node->data.operator.left) / node->data.operator.right->evaluate(node->data.operator.right); }
 double Operator_Power_evaluate(Node* node) { pow(node->data.operator.left->evaluate(node->data.operator.left), node->data.operator.right->evaluate(node->data.operator.right)); }
 
-float Operator_Add_evaluateFloat(Node* node) { node->data.operator.left->evaluateFloat(node->data.operator.left) + node->data.operator.right->evaluateFloat(node->data.operator.right); }
-float Operator_Subtract_evaluateFloat(Node* node) { node->data.operator.left->evaluateFloat(node->data.operator.left) - node->data.operator.right->evaluateFloat(node->data.operator.right); }
-float Operator_Multiply_evaluateFloat(Node* node) { node->data.operator.left->evaluateFloat(node->data.operator.left) * node->data.operator.right->evaluateFloat(node->data.operator.right); }
-float Operator_Divide_evaluateFloat(Node* node) { node->data.operator.left->evaluateFloat(node->data.operator.left) / node->data.operator.right->evaluateFloat(node->data.operator.right); }
-float Operator_Power_evaluateFloat(Node* node) { powf(node->data.operator.left->evaluateFloat(node->data.operator.left), node->data.operator.right->evaluateFloat(node->data.operator.right)); }
+fast_int Operator_Add_evaluateFastInt(Node* node) { node->data.operator.left->evaluateFastInt(node->data.operator.left) + node->data.operator.right->evaluateFastInt(node->data.operator.right); }
+fast_int Operator_Subtract_evaluateFastInt(Node* node) { node->data.operator.left->evaluateFastInt(node->data.operator.left) - node->data.operator.right->evaluateFastInt(node->data.operator.right); }
+fast_int Operator_Multiply_evaluateFastInt(Node* node) { node->data.operator.left->evaluateFastInt(node->data.operator.left) * node->data.operator.right->evaluateFastInt(node->data.operator.right); }
+fast_int Operator_Divide_evaluateFastInt(Node* node) { node->data.operator.left->evaluateFastInt(node->data.operator.left) / node->data.operator.right->evaluateFastInt(node->data.operator.right); }
+fast_int Operator_Power_evaluateFastInt(Node* node) { pow(node->data.operator.left->evaluateFastInt(node->data.operator.left), node->data.operator.right->evaluateFastInt(node->data.operator.right)); }
 
 Node* Operator_derivative(Node* node, char var) {
     return NULL;
@@ -369,4 +370,3 @@ Node* Operator_derivative(Node* node, char var) {
 Node* Operator_antiderivative(Node* node, char var) {
     return NULL;
 }
-
