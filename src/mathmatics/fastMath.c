@@ -1,19 +1,69 @@
 #include "fastMath.h"
 
+int DECIMAL_BITS = 12;
+fast_int epsilon;
+
+int setFastIntDecimalBits(int bits) {
+    if (bits < 0 || bits > 31) return 0;
+    DECIMAL_BITS = bits;
+    
+    epsilon = FLOAT_TO_FIXED(1e-4);
+    if(epsilon == 0) epsilon = 1; // smallest value that can be represented
+
+    return 1;
+}
+
+fast_int fast_add(fast_int a, fast_int b) {
+    //prevent overflow
+    if (a > 0 && b > INT32_MAX - a) return INT32_MAX;
+    if (a < 0 && b < INT32_MIN - a) return INT32_MIN;
+    return a + b;
+}
+fast_int fast_sub(fast_int a, fast_int b) {
+    //prevent overflow
+    if (a > 0 && b < INT32_MIN + a) return INT32_MAX;
+    if (a < 0 && b > INT32_MAX + a) return INT32_MIN;
+    return a - b;
+}
+
+fast_int fast_mul(fast_int a, fast_int b) {
+    // Split both operands into high and low 16-bit parts
+    int32_t a_high = a >> DECIMAL_BITS;           // High part of 'a'
+    int32_t a_low = a & ((1 << DECIMAL_BITS) - 1); // Low part of 'a'
+    int32_t b_high = b >> DECIMAL_BITS;           // High part of 'b'
+    int32_t b_low = b & ((1 << DECIMAL_BITS) - 1); // Low part of 'b'
+
+    // Compute the four partial products
+    int32_t high_high = a_high * b_high;          // High bits * High bits
+    int32_t high_low = a_high * b_low;            // High bits * Low bits
+    int32_t low_high = a_low * b_high;            // Low bits * High bits
+    int32_t low_low = a_low * b_low;              // Low bits * Low bits
+
+    // Combine the results with appropriate shifts
+    return (high_high << DECIMAL_BITS) + high_low + low_high + (low_low >> DECIMAL_BITS);
+}
+
+fast_int fast_div(fast_int a, fast_int b) {
+    if (b == 0) return 0;
+    int64_t scaled_dividend = ((int64_t)a << DECIMAL_BITS);
+    return (fast_int)(scaled_dividend / (int64_t)b);
+}
+
+
 fast_int fast_sin(fast_int x) {
     // Reduce angle using modulo
     x %= FIXED_TWO_PI;
     if (x > FIXED_PI) x -= FIXED_TWO_PI;
 
     // Faster approximation with fewer terms
-    fast_int x2 = FIXED_MUL(x, x);
-    fast_int x3 = FIXED_MUL(x2, x);
-    fast_int x5 = FIXED_MUL(x3, x2);
-    fast_int x7 = FIXED_MUL(x5, x2);
+    fast_int x2 = fast_mul(x, x);
+    fast_int x3 = fast_mul(x2, x);
+    fast_int x5 = fast_mul(x3, x2);
+    fast_int x7 = fast_mul(x5, x2);
 
-    return x - FIXED_DIV(x3, INT_TO_FIXED(6)) + 
-           FIXED_DIV(x5, INT_TO_FIXED(120)) - 
-           FIXED_DIV(x7, INT_TO_FIXED(5040));
+    return x - fast_div(x3, INT_TO_FIXED(6)) + 
+           fast_div(x5, INT_TO_FIXED(120)) - 
+           fast_div(x7, INT_TO_FIXED(5040));
 }
 fast_int fast_cos(fast_int x) {
     // Use sin(x + π/2)
@@ -117,13 +167,13 @@ fast_int fast_clamp(fast_int x, fast_int min, fast_int max) {
     return fast_min(fast_max(x, min), max);
 }
 fast_int fast_floor(fast_int x) {
-    return x & ~((1 << DECIMAL_PRECISION) - 1);
+    return x & ~((1 << DECIMAL_BITS) - 1);
 }
 fast_int fast_ceil(fast_int x) {
-    return (x & ~((1 << DECIMAL_PRECISION) - 1)) + (1 << DECIMAL_PRECISION);
+    return (x & ~((1 << DECIMAL_BITS) - 1)) + (1 << DECIMAL_BITS);
 }
 fast_int fast_round(fast_int x) {
-    return (x + (1 << (DECIMAL_PRECISION - 1))) & ~((1 << DECIMAL_PRECISION) - 1);
+    return (x + (1 << (DECIMAL_BITS - 1))) & ~((1 << DECIMAL_BITS) - 1);
 }
 fast_int fast_sign(fast_int x) {
     return (x > 0) - (x < 0);
