@@ -1,38 +1,34 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <math.h>
 #include <stdbool.h>
 
 #include <graphx.h>
-#include <ti/getcsc.h>
-#include "../mathmatics/fastMath.h"
 
-#define MAX_DEPTH 6
+#include <ti/getcsc.h> 
 
-/*
-float windowToPixelRatioX = 1;
-float windowToPixelRatioY = 1;
-float minimumPixelRatio = 1;
+#define MAX_DEPTH 8
+#define MIN_DEPTH 3
+#define COSINE_STRAIGHT_CONTOUR_THRESHOLD 0.945f
+#define epsilon 0.0001f
 
-bool limitRefinement = false;
+bool drawAxesTicks = true;
+uint8_t axesColor = 0;
+bool drawAxes = true;
+uint8_t axesTicksColor = 0;
 
-#define planeToScreenX(x) ((int)((x - ViewWindow.minX) * windowToPixelRatioX))
-#define planeToScreenY(y) (GFX_LCD_HEIGHT - ((int)((y - ViewWindow.minY) * windowToPixelRatioY))) //flipped to account for math and computer science coordinate differences
-
-// Function prototypes
-void processRegion(float x, float y, float size, uint8_t depth, float (*function)(float, float));
-void processChildOfRegion(float x, float y, float size, uint8_t depth, float (*function)(float, float));
-void renderRegion(float (*function)(float, float), float x, float y, float size, float f1, float f2, float f3, float f4);
-
-struct {
-    float minX, minY, maxX, maxY;
-} ViewWindow = {
-    .minX = -4.50f,
-    .minY = -4.50f,
-    .maxX = 6.0f,
-    .maxY = 6.0f
-};
+typedef float (*ImplicitFunction)(float x, float y);
+typedef enum {
+    TOP_EDGE = 0,
+    BOTTOM_EDGE = 1,
+    LEFT_EDGE = 2,
+    RIGHT_EDGE = 3
+} SquareEdge;
+typedef enum {
+    NORMAL = 0,
+    TOP_TO_LEFT_EDGE__BOTTOM_TO_RIGHT_EDGE = 1,
+    TOP_TO_RIGHT_EDGE__BOTTOM_TO_LEFT_EDGE = 2
+} ContourCase;
 
 float circle(float x, float y) {
     return x * x + y * y - 5; // Circle of radius 1
@@ -43,645 +39,602 @@ float hyperbola(float x, float y) {
 float line(float x, float y) {
     return x - y; 
 }
-float f2(float x, float y) {
-    return x - 1/sinf(y) * .5; 
+float csc(float x, float y) {
+    return x - 1/sinf(y); 
+}
+float gsin(float x, float y) {
+    return y - sinf(x);
+}
+float gtan(float x, float y) {
+    return y - tanf(x);
 }
 
-void gradient(float (*function)(float, float), float x, float y, float *grad_x, float *grad_y) {
-    float h = 1e-4f; // Small step size for numerical differentiation
-    // *grad_x = (function(x + h, y) - function(x - h, y)) / (2.0f * h);
-    // *grad_y = (function(x, y + h) - function(x, y - h)) / (2.0f * h);
-    *grad_x = (function(x + h, y) - function(x, y)) / h;
-    *grad_y = (function(x, y + h) - function(x, y)) / h;
+struct {
+    float minX, minY, maxX, maxY;
+    float planeToScreenRatioX, planeToScreenRatioY, minimumPlaneToScreenRatio;
+} ViewWindow = {
+    .minX = -7.0f,
+    .minY = -7.0f,
+    .maxX = 7.0f,
+    .maxY = 7.0f
+};
+float spareContourX0, spareContourY0, spareContourX1, spareContourY1;
+
+int planeToScreenX(float x) {
+    return (int)((x - ViewWindow.minX) * ViewWindow.planeToScreenRatioX);
+}
+int planeToScreenY(float y) {
+    return (int)(GFX_LCD_HEIGHT - ((y - ViewWindow.minY) * ViewWindow.planeToScreenRatioY)); // flipped to account for math and computer science coordinate differences
 }
 
-// Lipschitz constant for the function in a region
-float compute_lipschitz_constant(float (*function)(float, float), float x_min, float x_max, float y_min, float y_max) {
-    float max_grad = 0.0f;
-    const int SAMPLES = 2;  // Number of samples in each dimension
+void processRegion(ImplicitFunction function, float x, float y, float size, uint8_t depth);
+void processChildOfRegion(ImplicitFunction function, float x, float y, float size, uint8_t depth);
+void renderContour(int x1, int y1, int x2, int y2, ContourCase contourCase);
+uint8_t calculateSquareIndex(float f1, float f2, float f3, float f4);
+ContourCase calculateContourCase(uint8_t squareIndex);
+void calculateContourWithLinearInterpolation(float x, float y, float size, uint8_t squareIndex, float f1, float f2, float f3, float f4, float *contourX0, float *contourY0, float *contourX1, float *contourY1);
+void calculateContourWithNewtonMethod(ImplicitFunction function, float x, float y, float size, uint8_t squareIndex, float initContourX0, float initContourY0, float initContourX1, float initContourY1, float *contourX0, float *contourY0, float *contourX1, float *contourY1);
+float calculateLipschitzConstant(ImplicitFunction function, float minX, float maxX, float minY, float maxY, uint8_t samples);
+bool isContourStraight(ImplicitFunction function, float contourX0, float contourY0, float contourX1, float contourY1);
+void gradient(ImplicitFunction function, float x, float y, float *gradientX, float *gradientY);
+void renderRegion(ImplicitFunction function, float x, float y, float size);
+float minimumFunctionValue(float f1, float f2, float f3, float f4);
+float maximumFunctionValue(float f1, float f2, float f3, float f4);
+void startGraph(void);
+void quadTrees(ImplicitFunction function, uint8_t color);
+void marchingSquares(ImplicitFunction function, uint8_t color, int cellSize);
 
-    for (int i = 0; i < SAMPLES; i++) {
-        for (int j = 0; j < SAMPLES; j++) {
-            float x = x_min + (x_max - x_min) * i / (SAMPLES - 1);
-            float y = y_min + (y_max - y_min) * j / (SAMPLES - 1);
+void renderAxes() {
+    gfx_SetColor(axesColor);
+    gfx_HorizLine(0, planeToScreenY(0), GFX_LCD_WIDTH);
+    gfx_VertLine(planeToScreenX(0), 0, GFX_LCD_HEIGHT);
+}
+void renderAxesTicks() {
+    gfx_SetColor(axesTicksColor);
+    for(int i = (int)ViewWindow.minX; i <= (int)ViewWindow.maxX; i++) {
+        if(i == 0) continue;
+        int x = planeToScreenX(i);
+        gfx_VertLine(x, planeToScreenY(0) - 2, 4);
+    }
+    for(int i = (int)ViewWindow.minY; i <= (int)ViewWindow.maxY; i++) {
+        if(i == 0) continue;
+        int y = planeToScreenY(i);
+        gfx_HorizLine(planeToScreenX(0), y - 2, 4);
+    }
+}
+void startGraph(void) {
+    ViewWindow.planeToScreenRatioX = (float)GFX_LCD_WIDTH / (ViewWindow.maxX - ViewWindow.minX);
+    ViewWindow.planeToScreenRatioY = (float)GFX_LCD_HEIGHT / (ViewWindow.maxY - ViewWindow.minY);
+    ViewWindow.minimumPlaneToScreenRatio = fminf(ViewWindow.planeToScreenRatioX, ViewWindow.planeToScreenRatioY);
 
-            float grad_x, grad_y;
-            gradient(function, x, y, &grad_x, &grad_y);
+    if(drawAxes) { renderAxes(); }
+    if(drawAxesTicks) { renderAxesTicks(); }
+}
+void quadTrees(ImplicitFunction function, uint8_t color) {
+    gfx_SetColor(color);
+    processRegion(function, ViewWindow.minX, ViewWindow.minY, fmaxf(ViewWindow.maxX - ViewWindow.minX, ViewWindow.maxY - ViewWindow.minY), 0);
+}
 
-            float grad_magnitude = sqrtf(grad_x * grad_x + grad_y * grad_y);
+//////
+//////
+//////
 
-            if (grad_magnitude > max_grad) {
-                max_grad = grad_magnitude;
-            }
+float calculateLipschitzConstant(ImplicitFunction function, float minX, float maxX, float minY, float maxY, uint8_t samples) {
+    float maxGradient = 0.0f;
+
+    for(int i = 0; i < samples; i++) {
+        for(int j = 0; j < samples; j++) {
+            float x = minX + (maxX - minX) * i / (samples - 1);
+            float y = minY + (maxY - minY) * j / (samples - 1);
+
+            float gradietnX, gradientY;
+            gradient(function, x, y, &gradietnX, &gradientY);
+
+            float gradientMagnitude = sqrtf(gradietnX * gradietnX + gradientY * gradientY);
+            if(gradientMagnitude > maxGradient) maxGradient = gradientMagnitude;
         }
     }
 
-    return max_grad;
+    return maxGradient;
 }
 
-void processChildOfRegion(float x, float y, float size, uint8_t depth, float (*function)(float, float)) {
-    float halfSize = size / 2.0f;
-    uint8_t nextDepth = depth + 1;
+bool isContourStraight(ImplicitFunction function, float contourX0, float contourY0, float contourX1, float contourY1) {
+    float startContourX, startContourY;
+    float endContourX, endContourY;
 
-    processRegion(x, y, halfSize, nextDepth, function);
-    processRegion(x + halfSize, y, halfSize, nextDepth, function);
-    processRegion(x, y + halfSize, halfSize, nextDepth, function);
-    processRegion(x + halfSize, y + halfSize, halfSize, nextDepth, function);
-}
+    gradient(function, contourX0, contourY0, &startContourX, &startContourY);
+    gradient(function, contourX1, contourY1, &endContourX, &endContourY);
 
-void processRegion(float x, float y, float size, uint8_t depth, float (*function)(float, float)) {
-    if (depth >= MAX_DEPTH || (size * minimumPixelRatio <= 1 && limitRefinement)) {
-        // render region 
-        // should have contour line unless depth is 0
-        if(depth == 0) return;
+    float dot = startContourX * endContourX + startContourY * endContourY;
 
-        float x1 = x;
-        float y1 = y;
-        float x2 = x + size;
-        float y2 = y + size;
+    float startGradientMagnitudeSquared = startContourX * startContourX + startContourY * startContourY;
+    float endGradientMagnitudeSquared = endContourX * endContourX + endContourY * endContourY;
 
-        float f1 = function(x1, y1);
-        float f2 = function(x2, y1);
-        float f3 = function(x1, y2);
-        float f4 = function(x2, y2);
+    float cosineApproximation = dot * dot / (startGradientMagnitudeSquared * endGradientMagnitudeSquared);
 
-        renderRegion(function, x, y, size, f1, f2, f3, f4);
-        return;
-    }
-    
-    
-
-    //if(size > 8) processChildOfRegion(x, y, size, depth, function); // if pixel region larger than 8 just process sub children
-
-    float x1 = x;
-    float y1 = y;
-    float x2 = x + size;
-    float y2 = y + size;
-
-    float f1 = function(x1, y1);
-    float f2 = function(x2, y1);
-    float f3 = function(x1, y2);
-    float f4 = function(x2, y2);
-
-    
-    if(depth < 3) {
-        processChildOfRegion(x, y, size, depth, function);
-        return;
-    }
-
-    // Find minimum and maximum sampled values
-    float sampled_min = fminf(fminf(f1, f2), fminf(f3, f4));
-    float sampled_max = fmaxf(fmaxf(f1, f2), fmaxf(f3, f4));
-
-    if(sampled_min <= 0 && sampled_max >= 0) {
-        // region has contour line
-        // skip Lipschitz constant calculation (expensive)
-        processChildOfRegion(x, y, size, depth, function);
-        return;
-    }
-
-    // Calculate Lipschitz constant for this region
-    float L = compute_lipschitz_constant(function, x1, x2, y1, y2);
-
-    // Calculate region diameter in function space
-    float region_diameter = size * 1.41421356237f * 2;  // sqrt(2)
-
-    // Calculate possible range of f in this region
-    float possible_min = sampled_min - L * region_diameter;
-    float possible_max = sampled_max + L * region_diameter;
-
-   if(possible_min <= 0 && possible_max >= 0) {
-        // region has contour line
-        processChildOfRegion(x, y, size, depth, function);
-        return;
-    }
-
-
-    // has no contour line
-    return;
+    return cosineApproximation > COSINE_STRAIGHT_CONTOUR_THRESHOLD * COSINE_STRAIGHT_CONTOUR_THRESHOLD;
 }
 
 float interpolate(float f1, float f2, float p1, float p2) {
-    if (fabsf(f2 - f1) < 0.0001f) {
+    if (fabsf(f2 - f1) < 0.000001f) {
         // If function values are very close, return midpoint
         return (p1 + p2) * 0.5f;
     }
     float t = -f1 / (f2 - f1); // Assuming we are looking for the zero crossing (isoLevel = 0)
     return p1 + t * (p2 - p1);
 }
+const int MAX_NEWTON_ITERATIONS = 3; 
+float newton(ImplicitFunction function, float initialGuess, float minBound, float maxBound, float fixedBound, SquareEdge side) {
+    // intial guess is a point on the edge
+    // fixedBound is a fixed paramater for the edge i.e. for TOP_EDGE the fixedBound would be the y of the edge (y0)
+    // side being which side we are looking at
 
-void renderRegion(float (*function)(float, float), float x, float y, float size, float f1, float f2, float f3, float f4) {
-    float isoLevel = 0.0f;  // Threshold for contour line
-    int squareIndex = 0;
+    float result = initialGuess;
 
-    // Determine the case index based on corner values
-    if (f1 < isoLevel) squareIndex |= 1;
-    if (f2 < isoLevel) squareIndex |= 2;
-    if (f3 < isoLevel) squareIndex |= 4;
-    if (f4 < isoLevel) squareIndex |= 8;
+    switch(side) {
+        case TOP_EDGE: 
+        case BOTTOM_EDGE: 
+            {
+                for(int i = 0; i < MAX_NEWTON_ITERATIONS; i++) {
+                    float value = function(result, fixedBound);
+                    float gradient = (function(result + epsilon, fixedBound) - value) / epsilon;
+                    if(gradient == 0) return result;
 
-    // Early exit if the square is entirely inside or outside the contour
-    if (squareIndex == 0 || squareIndex == 15) return;
+                    result -= value / gradient;
+                }
+                return fmaxf(minBound, fminf(result, maxBound)); //clamped result
+            }
+        case LEFT_EDGE:
+        case RIGHT_EDGE:
+            {
+                for(int i = 0; i < MAX_NEWTON_ITERATIONS; i++) {
+                    float value = function(fixedBound, result);
+                    float gradient = (function(fixedBound, result + epsilon) - value) / epsilon;
+                    if(gradient == 0) return result;
 
-    //squareIndex = 16;
+                    result -= value / gradient;
+                }
+                return fmaxf(minBound, fminf(result, maxBound));
+            }
+    }
 
-    // Corner positions
+    return result; // should never reach here
+}
+
+void calculateContourWithLinearInterpolation(float x, float y, float size, uint8_t squareIndex, float f1, float f2, float f3, float f4, float *contourX0, float *contourY0, float *contourX1, float *contourY1) {
     float x0 = x;
     float y0 = y;
     float x1 = x + size;
     float y1 = y + size;
 
+    switch(squareIndex) {
+        case 1:
+            *contourX0 = interpolate(f1, f2, x0, x1);
+            *contourY0 = y0;
+            *contourX1 = x0;
+            *contourY1 = interpolate(f1, f3, y0, y1);
+            break;
+        case 2:
+            *contourX0 = x1;
+            *contourY0 = interpolate(f2, f4, y0, y1);
+            *contourX1 = interpolate(f1, f2, x0, x1);
+            *contourY1 = y0;
+            break;
+        case 3:
+            *contourX0 = x0;
+            *contourY0 = interpolate(f1, f3, y0, y1);
+            *contourX1 = x1;
+            *contourY1 = interpolate(f2, f4, y0, y1);
+            break;
+        case 4:
+            *contourX0 = x0;
+            *contourY0 = interpolate(f1, f3, y0, y1);
+            *contourX1 = interpolate(f3, f4, x0, x1);
+            *contourY1 = y1;
+            break;
+        case 5:
+            *contourX0 = interpolate(f1, f2, x0, x1);
+            *contourY0 = y0;
+            *contourX1 = interpolate(f3, f4, x0, x1);
+            *contourY1 = y1;
+            break;
+        case 6:
+            *contourX0 = interpolate(f1, f2, x0, x1);
+            *contourY0 = y0;
+            *contourX1 = x1;
+            *contourY1 = interpolate(f2, f4, y0, y1);
 
-    //gfx_Rectangle_NoClip(planeToScreenX(x0), planeToScreenY(y0), (int)(size * windowToPixelRatioX) + 1, (int)(size * windowToPixelRatioY) + 1);
+            spareContourX0 = interpolate(f1, f3, x0, x1);
+            spareContourY0 = y1;
+            spareContourX1 = x0;
+            spareContourY1 = interpolate(f1, f3, y0, y1);
+            break;
+        case 7:
+            *contourX0 = interpolate(f3, f4, x0, x1);
+            *contourY0 = y1;
+            *contourX1 = x1;
+            *contourY1 = interpolate(f2, f4, y0, y1);
+            break;
+        case 8:
+            *contourX0 = interpolate(f3, f4, x0, x1);
+            *contourY0 = y1;
+            *contourX1 = x1;
+            *contourY1 = interpolate(f2, f4, y0, y1);
+            break;
+        case 9:
+            *contourX0 = x0;
+            *contourY0 = interpolate(f1, f3, y0, y1);
+            *contourX1 = interpolate(f1, f2, x0, x1);
+            *contourY1 = y0;
 
+            spareContourX0 = x1;
+            spareContourY0 = interpolate(f2, f4, y0, y1);
+            spareContourX1 = interpolate(f3, f4, x0, x1);
+            spareContourY1 = y1;
+            break;
+        case 10:
+            *contourX0 = interpolate(f1, f2, x0, x1);
+            *contourY0 = y0;
+            *contourX1 = interpolate(f3, f4, x0, x1);
+            *contourY1 = y1;
+            break;
+        case 11:
+            *contourX0 = x0;
+            *contourY0 = interpolate(f1, f3, y0, y1);
+            *contourX1 = interpolate(f3, f4, x0, x1);
+            *contourY1 = y1;
+            break;
+        case 12:
+            *contourX0 = x0;
+            *contourY0 = interpolate(f1, f3, y0, y1);
+            *contourX1 = x1;
+            *contourY1 = interpolate(f2, f4, y0, y1);
+            break;
+        case 13:
+            *contourX0 = interpolate(f1, f2, x0, x1);
+            *contourY0 = y0;
+            *contourX1 = x1;
+            *contourY1 = interpolate(f2, f4, y0, y1);
+            break;
+        case 14:
+            *contourX0 = interpolate(f1, f2, x0, x1);
+            *contourY0 = y0;
+            *contourX1 = x0;
+            *contourY1 = interpolate(f1, f3, y0, y1);
+            break;
+        default:
+            // set to top left to bottom right
+            *contourX0 = x0;
+            *contourY0 = y0;
+            *contourX1 = x1;
+            *contourY1 = y1;
+    }
+}
+void calculateContourWithNewtonMethod(ImplicitFunction function, float x, float y, float size, uint8_t squareIndex, float initContourX0, float initContourY0, float initContourX1, float initContourY1, float *contourX0, float *contourY0, float *contourX1, float *contourY1) {
+    float x0 = x;
+    float y0 = y;
+    float x1 = x + size;
+    float y1 = y + size;
 
     switch (squareIndex) {
-        case 1: {
+        case 1:
             // Case 1: Only f1 (top-left) is below the isoLevel
-            // Line between edge 0 and edge 3
-
-            float leftY = fminf(fmaxf(interpolate(f1, f3, y0, y1), y0), y1);
-            float topX = fminf(fmaxf(interpolate(f1, f2, x0, x1), x0), x1);
-
-            gfx_Line_NoClip(planeToScreenX(x0), planeToScreenY(leftY), planeToScreenX(topX), planeToScreenY(y0)); 
+            // line crosses top and left edge
+            *contourX0 = newton(function, initContourX0, x0, x1, y0, TOP_EDGE);
+            *contourY0 = initContourY0;
+            *contourX1 = initContourX1;
+            *contourY1 = newton(function, initContourY1, y0, y1, x0, LEFT_EDGE);
             break;
-        }
-        case 2: {
+        case 2:
             // Case 2: Only f2 (top-right) is below the isoLevel
-            // Line between edge 0 and edge 1
-
-            float topX = fminf(fmaxf(interpolate(f1, f2, x0, x1), x0), x1);
-            float rightY = fminf(fmaxf(interpolate(f2, f4, y0, y1), y0), y1);
-
-            gfx_Line_NoClip(planeToScreenX(topX), planeToScreenY(y0), planeToScreenX(x1), planeToScreenY(rightY));
+            // line crosses top and right edge
+            *contourX0 = initContourX0;
+            *contourY0 = newton(function, initContourY0, y0, y1, x1, RIGHT_EDGE);
+            *contourX1 = newton(function, initContourX1, x0, x1, y0, TOP_EDGE);
+            *contourY1 = initContourY1;
             break;
-        }
-        case 3: {
+        case 3:
             // Case 3: f1 and f2 are below the isoLevel
-            // Line between edge 1 and edge 3
-
-            float leftY = fminf(fmaxf(interpolate(f1, f3, y0, y1), y0), y1);
-            float rightY = fminf(fmaxf(interpolate(f2, f4, y0, y1), y0), y1);
-
-            gfx_Line_NoClip(planeToScreenX(x0), planeToScreenY(leftY), planeToScreenX(x1), planeToScreenY(rightY));
+            // line crosses left and right edge
+            *contourX0 = initContourX0;
+            *contourY0 = newton(function, initContourY0, y0, y1, x0, LEFT_EDGE);
+            *contourX1 = initContourX1;
+            *contourY1 = newton(function, initContourY1, y0, y1, x1, RIGHT_EDGE);
             break;
-        }
-        case 4: {
+        case 4:
             // Case 4: Only f3 (bottom-right) is below the isoLevel
-            // Line between edge 1 and edge 2
-
-            float bottomX = fminf(fmaxf(interpolate(f3, f4, x0, x1), x0), x1);
-            float leftY = fminf(fmaxf(interpolate(f1, f3, y0, y1), y0), y1);
-
-            gfx_Line_NoClip(planeToScreenX(bottomX), planeToScreenY(y1), planeToScreenX(x0), planeToScreenY(leftY));
+            // line crosses bottom and right edge
+            *contourX0 = initContourX0;
+            *contourY0 = newton(function, initContourY0, y0, y1, x0, LEFT_EDGE);
+            *contourX1 = newton(function, initContourX1, x0, x1, y1, BOTTOM_EDGE);
+            *contourY1 = initContourY1;
             break;
-        }
-        case 5: {
+        case 5:
             // Case 5: f1 and f3 are below the isoLevel
-            // Lines between edge 0 to edge 3, and edge 1 to edge 2 (ambiguous case)
-
-            float topX = fminf(fmaxf(interpolate(f1, f2, x0, x1), x0), x1);
-            float bottomX = fminf(fmaxf(interpolate(f3, f4, x0, x1), x0), x1);
-
-            gfx_Line_NoClip(planeToScreenX(topX), planeToScreenY(y0), planeToScreenX(bottomX), planeToScreenY(y1));
-            break;
-        }
-        case 6: {
+            // line crosses top and bottom edge
+            *contourX0 = newton(function, initContourX0, x0, x1, y0, TOP_EDGE);
+            *contourY0 = initContourY0;
+            *contourX1 = newton(function, initContourX1, x0, x1, y1, BOTTOM_EDGE);
+            *contourY1 = initContourY1;
+        case 6:
             // Case 6: f2 and f3 are below the isoLevel
-            // Line between edge 0 and edge 2
-
-            
+            // line crosses left and bottom edge
+            // special case
             break;
-        }
-        case 7: {
+        case 7: // sus
             // Case 7: f1, f2, and f3 are below the isoLevel
-            // Line between edge 2 and edge 3
-
-            float bottomX = fminf(fmaxf(interpolate(f3, f4, x0, x1), x0), x1);
-            float rightY = fminf(fmaxf(interpolate(f2, f4, y0, y1), y0), y1);
-
-            gfx_Line_NoClip(planeToScreenX(bottomX), planeToScreenY(y1), planeToScreenX(x1), planeToScreenY(rightY));
+            // line crosses left and bottom edge
+            *contourX0 = newton(function, initContourX0, x0, x1, y1, BOTTOM_EDGE);
+            *contourY0 = initContourY0;
+            *contourX1 = initContourX1;
+            *contourY1 = newton(function, initContourY1, y0, y1, x1, RIGHT_EDGE);
             break;
-        }
-        case 8: {
+        case 8:
             // Case 8: Only f4 (bottom-left) is below the isoLevel
-            // Line between edge 2 and edge 3
-
-            float bottomX = fminf(fmaxf(interpolate(f3, f4, x0, x1), x0), x1);
-            float rightY = fminf(fmaxf(interpolate(f2, f4, y0, y1), y0), y1);
-
-            gfx_Line_NoClip(planeToScreenX(bottomX), planeToScreenY(y1), planeToScreenX(x1), planeToScreenY(rightY));
+            // line crosses bottom and left edge
+            *contourX0 = newton(function, initContourX0, x0, x1, y1, BOTTOM_EDGE);
+            *contourY0 = initContourY0;
+            *contourX1 = initContourX1;
+            *contourY1 = newton(function, initContourY1, y0, y1, x1, RIGHT_EDGE);
             break;
-        }
-        case 9: {
+        case 9:
             // Case 9: f1 and f4 are below the isoLevel
-            // Line between edge 0 and edge 2
-
-            
+            // line crosses top and left edge
+            // special case
             break;
-        }
-        case 10: {
+        case 10:
             // Case 10: f2 and f4 are below the isoLevel
-            // Lines between edge 0 to edge 1, and edge 2 to edge 3 (ambiguous case)
-
-            float topX = fminf(fmaxf(interpolate(f1, f2, x0, x1), x0), x1);
-            float bottomX = fminf(fmaxf(interpolate(f3, f4, x0, x1), x0), x1);
-
-            gfx_Line_NoClip(planeToScreenX(topX), planeToScreenY(y0), planeToScreenX(bottomX), planeToScreenY(y1));
+            // line crosses top and right edge
+            *contourX0 = newton(function, initContourX0, x0, x1, y0, TOP_EDGE);
+            *contourY0 = initContourY0;
+            *contourX1 = newton(function, initContourX1, x0, x1, y1, BOTTOM_EDGE);
+            *contourY1 = initContourY1;
             break;
-        }
-        case 11: { 
+        case 11:
             // Case 11: f1, f2, and f4 are below the isoLevel
-            // Line between edge 1 and edge 2
-
-            float leftY = fminf(fmaxf(interpolate(f1, f3, y0, y1), y0), y1);
-            float bottomX = fminf(fmaxf(interpolate(f3, f4, x0, x1), x0), x1);
-
-            gfx_Line_NoClip(planeToScreenX(x0), planeToScreenY(leftY), planeToScreenX(bottomX), planeToScreenY(y1));
+            // line crosses top and right edge
+            *contourX0 = initContourX0;
+            *contourY0 = newton(function, initContourY0, y0, y1, x0, LEFT_EDGE);
+            *contourX1 = newton(function, initContourX1, x0, x1, y1, TOP_EDGE);
+            *contourY1 = initContourY1;
             break;
-        }
-        case 12: {
+        case 12:
             // Case 12: f3 and f4 are below the isoLevel
-            // Line between edge 1 and edge 3
-
-            float leftY = fminf(fmaxf(interpolate(f1, f3, y0, y1), y0), y1);
-            float rightY = fminf(fmaxf(interpolate(f2, f4, y0, y1), y0), y1);
-
-            gfx_Line_NoClip(planeToScreenX(x0), planeToScreenY(leftY), planeToScreenX(x1), planeToScreenY(rightY));
+            // line crosses left and bottom edge
+            *contourX0 = initContourX0;
+            *contourY0 = newton(function, initContourY0, y0, y1, x0, LEFT_EDGE);
+            *contourX1 = initContourX1;
+            *contourY1 = newton(function, initContourY1, y0, y1, x1, BOTTOM_EDGE);
             break;
-        }
-        case 13: {
+        case 13:
             // Case 13: f1, f3, and f4 are below the isoLevel
-            // Line between edge 0 and edge 1
-
-            float topX = fminf(fmaxf(interpolate(f1, f2, x0, x1), x0), x1);
-            float rightY = fminf(fmaxf(interpolate(f2, f4, y0, y1), y0), y1);
-
-            gfx_Line_NoClip(planeToScreenX(topX), planeToScreenY(y0), planeToScreenX(x1), planeToScreenY(rightY));
+            // line crosses left and bottom edge
+            *contourX0 = newton(function, initContourX0, x0, x1, y0, TOP_EDGE);
+            *contourY0 = initContourY0;
+            *contourX1 = initContourX1;
+            *contourY1 = newton(function, initContourY1, y0, y1, x1, RIGHT_EDGE);
             break;
-        }
-        case 14: {
+        case 14:
             // Case 14: f2, f3, and f4 are below the isoLevel
-            // Line between edge 0 and edge 3
-
-            float topX = fminf(fmaxf(interpolate(f1, f2, x0, x1), x0), x1);
-            float leftY = fminf(fmaxf(interpolate(f1, f3, y0, y1), y0), y1);
-
-            gfx_Line_NoClip(planeToScreenX(x0), planeToScreenY(leftY), planeToScreenX(topX), planeToScreenY(y0));
-            break;
-        }
-        default:
-            // Invalid case (should not happen)
-            gfx_Rectangle_NoClip(planeToScreenX(x0), planeToScreenY(y0), (int)(size * windowToPixelRatioX) + 1, (int)(size * windowToPixelRatioY) + 1);
+            // line crosses top and right edge
+            *contourX0 = newton(function, initContourX0, x0, x1, y0, TOP_EDGE);
+            *contourY0 = initContourY0;
+            *contourX1 = initContourX1;
+            *contourY1 = newton(function, initContourY1, y0, y1, x0, LEFT_EDGE);
             break;
     }
 }
 
-void renderImplicitFunction(float (*function)(float, float), uint8_t color) {
-    gfx_SetColor(color);
-    processRegion(ViewWindow.minX, ViewWindow.minY, fmaxf(ViewWindow.maxX - ViewWindow.minX, ViewWindow.maxY - ViewWindow.minY), 0, function);
+void gradient(ImplicitFunction function, float x, float y, float *gradientX, float *gradientY) {
+    *gradientX = (function(x + epsilon, y) - function(x - epsilon, y)) / (2 * epsilon);
+    *gradientY = (function(x, y + epsilon) - function(x, y - epsilon)) / (2 * epsilon);
 }
 
-void startGraph() {
-    
+void renderContour(int x1, int y1, int x2, int y2, ContourCase contourCase) {
+    // clamp to display
+    x1 = fmaxf(0, fminf(GFX_LCD_WIDTH - 1, x1));
+    y1 = fmaxf(0, fminf(GFX_LCD_HEIGHT - 1, y1));
+    x2 = fmaxf(0, fminf(GFX_LCD_WIDTH - 1, x2));
+    y2 = fmaxf(0, fminf(GFX_LCD_HEIGHT - 1, y2));
 
-    windowToPixelRatioX = (float)GFX_LCD_WIDTH / (ViewWindow.maxX - ViewWindow.minX);
-    windowToPixelRatioY = (float)GFX_LCD_HEIGHT / (ViewWindow.maxY - ViewWindow.minY);
-    minimumPixelRatio = fminf(windowToPixelRatioX, windowToPixelRatioY);
-
-    // draw grid
-    // draw other things
-
-    //then graphs themselves
-
-    
-}
-*/
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-fast_int line(fast_int x, fast_int y) {
-    return x - y;
-}
-fast_int hyperbola(fast_int x, fast_int y) {
-    return fast_mul(x,x) - fast_mul(y,y) - INT_TO_FIXED(1);
-}
-fast_int csc(fast_int x, fast_int y) {
-    return x - fast_div(INT_TO_FIXED(1), fast_sin(y));
-}
-
-fast_int GRADIANT_CUTOFF_VALUE; // if gradiant if below this value then stop refining
-
-fast_int planeToScreenRatioX;
-fast_int planeToScreenRatioY;
-fast_int minimumPlaneToScreenRatio;
-
-struct {
-    fast_int minX, minY, maxX, maxY;
-} ViewWindow;
-
-int planeToScreenX(fast_int x) {
-    return FIXED_TO_INT(fast_mul((x - ViewWindow.minX), planeToScreenRatioX));
-}
-int planeToScreenY(fast_int y) {
-    return GFX_LCD_HEIGHT - FIXED_TO_INT(fast_mul((y - ViewWindow.minY), planeToScreenRatioY)); // flipped to account for math and computer science coordinate differences
-}
-
-void startGraph(void);
-void processRegion(fast_int x, fast_int y, fast_int size, uint8_t depth, fast_int (*function)(fast_int, fast_int));
-void processChildOfRegion(fast_int x, fast_int y, fast_int size, uint8_t depth, fast_int (*function)(fast_int, fast_int));
-void renderRegion(fast_int (*function)(fast_int, fast_int), fast_int x, fast_int y, fast_int size, fast_int f1, fast_int f2, fast_int f3, fast_int f4);
-
-uint8_t minimumDecimalBits = 8;
-int calculateNeccessaryDecimalBits(fast_int minX,fast_int minY,fast_int maxX,fast_int maxY) {
-    float minimumWindowRange = FIXED_TO_FLOAT(fast_min(maxX - minX, maxY - minY));
-    return ((int)ceil(
-        (31 - minimumDecimalBits) * expf(-minimumWindowRange / (32 / 2))
-    ) + minimumDecimalBits);
-}
-
-void renderImplicitFunction(fast_int (*function)(fast_int, fast_int), uint8_t color) {
-    gfx_SetColor(color);
-    processRegion(ViewWindow.minX, ViewWindow.minY, fast_max(ViewWindow.maxX - ViewWindow.minX, ViewWindow.maxY - ViewWindow.minY), 0, function);
-}
-
-void startGraph(void) {
-    fast_int minX = FLOAT_TO_FIXED(-10.0);
-    fast_int minY = FLOAT_TO_FIXED(-10.0);
-    fast_int maxX = FLOAT_TO_FIXED(10.0);
-    fast_int maxY = FLOAT_TO_FIXED(10.0);    
-
-    // calculateNeccessaryDecimalBits(minX, minY, maxX, maxY))
-    setFastIntDecimalBits(14);
-
-    GRADIANT_CUTOFF_VALUE = FLOAT_TO_FIXED(1);
-
-    ViewWindow.minX = minX;
-    ViewWindow.minY = minY;
-    ViewWindow.maxX = maxX;
-    ViewWindow.maxY = maxY;
-
-    planeToScreenRatioX = fast_div(INT_TO_FIXED(GFX_LCD_WIDTH), ViewWindow.maxX - ViewWindow.minX);
-    planeToScreenRatioY = fast_div(INT_TO_FIXED(GFX_LCD_HEIGHT), ViewWindow.maxY - ViewWindow.minY);
-    minimumPlaneToScreenRatio = fast_min(planeToScreenRatioX, planeToScreenRatioY);
-}
-
-void gradient(fast_int (*function)(fast_int, fast_int), fast_int x, fast_int y, fast_int *grad_x, fast_int *grad_y) {
-    fast_int divisor = INT_TO_FIXED(2);
-    *grad_x = fast_div(function(x + epsilon, y) - function(x - epsilon, y), divisor);
-    *grad_y = fast_div(function(x, y + epsilon) - function(x, y + epsilon), divisor);
-}
-fast_int lipschitzConstant(fast_int (*function)(fast_int, fast_int), fast_int x_min, fast_int x_max, fast_int y_min, fast_int y_max, bool *shouldStop) {
-    fast_int max_grad = 0;
-    const int SAMPLES = 2;
-
-    for (int i = 0; i < SAMPLES; i++) {
-        for (int j = 0; j < SAMPLES; j++) {
-            fast_int x = x_min + FIXED_DIV(x_max - x_min, INT_TO_FIXED(SAMPLES - 1)) * i;
-            fast_int y = y_min + FIXED_DIV(y_max - y_min, INT_TO_FIXED(SAMPLES - 1)) * j;
-
-            fast_int grad_x, grad_y;
-            gradient(function, x, y, &grad_x, &grad_y);
-
-            fast_int grad_magnitude = fast_sqrt(fast_mul(grad_x, grad_x) + fast_mul(grad_y, grad_y));
-
-            if(grad_magnitude < GRADIANT_CUTOFF_VALUE) {
-                *shouldStop = true;
-                return 0;
-            }
-
-            if (grad_magnitude > max_grad) {
-                max_grad = grad_magnitude;
-            }
-        }
+    if(contourCase == NORMAL) {
+        gfx_Line_NoClip(x1,y1,x2, y2);
     }
-
-    return max_grad;
+    else if(contourCase == TOP_TO_LEFT_EDGE__BOTTOM_TO_RIGHT_EDGE || contourCase == TOP_TO_RIGHT_EDGE__BOTTOM_TO_LEFT_EDGE) {
+        gfx_Line_NoClip(x1,y1,x2, y2);
+        gfx_Line_NoClip(spareContourX0, spareContourY0, spareContourX1, spareContourY1);
+    }
 }
 
-void processChildOfRegion(fast_int x, fast_int y, fast_int size, uint8_t depth, fast_int (*function)(fast_int, fast_int)) {
-    fast_int halfSize = fast_div(size, INT_TO_FIXED(2));
-    uint8_t nextDepth = depth + 1;
-
-    processRegion(x, y, halfSize, nextDepth, function);
-    processRegion(x + halfSize, y, halfSize, nextDepth, function);
-    processRegion(x, y + halfSize, halfSize, nextDepth, function);
-    processRegion(x + halfSize, y + halfSize, halfSize, nextDepth, function);
-}
-
-void processRegion(fast_int x, fast_int y, fast_int size, uint8_t depth, fast_int (*function)(fast_int, fast_int)) {
-    if(depth >= MAX_DEPTH) {
-        //render region
-        if(depth == 0) return; // should have contour line unless depth is 0
-
-        fast_int x1 = x;
-        fast_int y1 = y;
-        fast_int x2 = x + size;
-        fast_int y2 = y + size;
-
-        fast_int f1 = function(x1, y1);
-        fast_int f2 = function(x2, y1);
-        fast_int f3 = function(x1, y2);
-        fast_int f4 = function(x2, y2);
-
-        renderRegion(function, x, y, size, f1, f2, f3, f4);
-        return;
-    }
-
-    if(depth < 3) {
-        // not need to calculate anything for large regions
-        processChildOfRegion(x, y, size, depth, function);
-        return;
-    }
-
-    fast_int x1 = x;
-    fast_int y1 = y;
-    fast_int x2 = x + size;
-    fast_int y2 = y + size;
-
-    fast_int f1 = function(x1, y1);
-    fast_int f2 = function(x2, y1);
-    fast_int f3 = function(x1, y2);
-    fast_int f4 = function(x2, y2);
-
-    fast_int sampledMin = fast_min(fast_min(f1, f2), fast_min(f3, f4));
-    fast_int sampledMax = fast_max(fast_max(f1, f2), fast_max(f3, f4));
-
-    if(sampledMin <= 0 && sampledMax >= 0) {
-        // region has contour line
-        processChildOfRegion(x, y, size, depth, function);
-        return;
-    }
-
-    bool shouldStop = false;
-
-    fast_int L = lipschitzConstant(function, x1, x2, y1, y2, &shouldStop);
-
-    if(shouldStop) {
-        renderRegion(function, x, y, size, f1, f2, f3, f4);
-        return;
-    }
-
-    fast_int regionDiameter = fast_mul(size, fast_mul(FLOAT_TO_FIXED(1.41421356237), INT_TO_FIXED(2)));
-
-    fast_int possibleMin = sampledMin - fast_mul(L, regionDiameter);
-    fast_int possibleMax = sampledMax + fast_mul(L, regionDiameter);
-
-    if(possibleMin <= 0 && possibleMax >= 0) {
-        // region has contour line
-        processChildOfRegion(x, y, size, depth, function);
-        return;
-    }
-
-    // has no contour line
-}
-
-fast_int interpolate(fast_int f1, fast_int f2, fast_int p1, fast_int p2) {
-    if(fast_abs(f2 - f1) < epsilon) {
-        return fast_div(FIXED_ADD(p1, p2), INT_TO_FIXED(2));
-    }
-    fast_int t = fast_div(FIXED_NEG(f1), FIXED_SUB(f2, f1));
-    return FIXED_ADD(p1, fast_mul(t, FIXED_SUB(p2, p1)));
-}
-
-void renderRegion(fast_int (*function)(fast_int, fast_int), fast_int x, fast_int y, fast_int size, fast_int f1, fast_int f2, fast_int f3, fast_int f4) {
-    fast_int isoLevel = 0;
+uint8_t calculateSquareIndex(float f1, float f2, float f3, float f4) {
     uint8_t squareIndex = 0;
 
-    if(f1 < isoLevel) squareIndex |= 1;
-    if(f2 < isoLevel) squareIndex |= 2;
-    if(f3 < isoLevel) squareIndex |= 4;
-    if(f4 < isoLevel) squareIndex |= 8;
+    if(f1 < 0) squareIndex |= 1;
+    if(f2 < 0) squareIndex |= 2;
+    if(f3 < 0) squareIndex |= 4;
+    if(f4 < 0) squareIndex |= 8;
 
-    if(squareIndex == 0 || squareIndex == 15) return;
-
-    fast_int x0 = x;
-    fast_int y0 = y;
-    fast_int x1 = x + size;
-    fast_int y1 = y + size;
-
-    //gfx_FillScreen(255);
-
-    // gfx_Rectangle_NoClip(planeToScreenX(x0), planeToScreenY(y0), FIXED_TO_INT(fast_mul(size, planeToScreenRatioX)) + 1, FIXED_TO_INT(fast_mul(size, planeToScreenRatioY)) + 1);
-
+    return squareIndex;
+}
+ContourCase calculateContourCase(uint8_t squareIndex) {
     switch(squareIndex) {
-        case 1: {
-            fast_int leftY = fast_clamp(interpolate(f1, f3, y0, y1), y0, y1);
-            fast_int topX = fast_clamp(interpolate(f1, f2, x0, x1), x0, x1);
-            
-            gfx_Line_NoClip(planeToScreenX(x0), planeToScreenY(leftY), planeToScreenX(topX), planeToScreenY(y0));
-            break;
-        }
-        case 2: {
-            fast_int topX = fast_clamp(interpolate(f1, f2, x0, x1), x0, x1);
-            fast_int rightY = fast_clamp(interpolate(f2, f4, y0, y1), y0, y1);
-
-            gfx_Line_NoClip(planeToScreenX(topX), planeToScreenY(y0), planeToScreenX(x1), planeToScreenY(rightY));
-            break;
-        }
-        case 3: {
-            fast_int leftY = fast_clamp(interpolate(f1, f3, y0, y1), y0, y1);
-            fast_int rightY = fast_clamp(interpolate(f2, f4, y0, y1), y0, y1);
-
-            gfx_Line_NoClip(planeToScreenX(x0), planeToScreenY(leftY), planeToScreenX(x1), planeToScreenY(rightY));
-            break;
-        }
-        case 4: {
-            fast_int bottomX = fast_clamp(interpolate(f3, f4, x0, x1), x0, x1);
-            fast_int leftY = fast_clamp(interpolate(f1, f3, y0, y1), y0, y1);
-
-            gfx_Line_NoClip(planeToScreenX(bottomX), planeToScreenY(y1), planeToScreenX(x0), planeToScreenY(leftY));
-            break;
-        }
-        case 5: {
-            fast_int topX = fast_clamp(interpolate(f1, f2, x0, x1), x0, x1);
-            fast_int bottomX = fast_clamp(interpolate(f3, f4, x0, x1), x0, x1);
-
-            gfx_Line_NoClip(planeToScreenX(topX), planeToScreenY(y0), planeToScreenX(bottomX), planeToScreenY(y1));
-            break;
-        }
-        // case 6: {
-        //     break;
-        // }
-        case 7: {
-            fast_int bottomX = fast_clamp(interpolate(f3, f4, x0, x1), x0, x1);
-            fast_int rightY = fast_clamp(interpolate(f2, f4, y0, y1), y0, y1);
-
-            gfx_Line_NoClip(planeToScreenX(bottomX), planeToScreenY(y1), planeToScreenX(x1), planeToScreenY(rightY));
-            break;
-        }
-        case 8: {
-            fast_int bottomX = fast_clamp(interpolate(f3, f4, x0, x1), x0, x1);
-            fast_int rightY = fast_clamp(interpolate(f2, f4, y0, y1), y0, y1);
-
-            gfx_Line_NoClip(planeToScreenX(bottomX), planeToScreenY(y1), planeToScreenX(x1), planeToScreenY(rightY));
-            break;
-        }
-        // case 9: {
-        //     break;
-        // }
-        case 10: {
-            fast_int topX = fast_clamp(interpolate(f1, f2, x0, x1), x0, x1);
-            fast_int bottomX = fast_clamp(interpolate(f3, f4, x0, x1), x0, x1);
-
-            gfx_Line_NoClip(planeToScreenX(topX), planeToScreenY(y0), planeToScreenX(bottomX), planeToScreenY(y1));
-            break;
-        }
-        case 11: {
-            fast_int leftY = fast_clamp(interpolate(f1, f3, y0, y1), y0, y1);
-            fast_int bottomX = fast_clamp(interpolate(f3, f4, x0, x1), x0, x1);
-
-            gfx_Line_NoClip(planeToScreenX(x0), planeToScreenY(leftY), planeToScreenX(bottomX), planeToScreenY(y1));
-            break;
-        }
-        case 12: {
-            fast_int leftY = fast_clamp(interpolate(f1, f3, y0, y1), y0, y1);
-            fast_int rightY = fast_clamp(interpolate(f2, f4, y0, y1), y0, y1);
-
-            gfx_Line_NoClip(planeToScreenX(x0), planeToScreenY(leftY), planeToScreenX(x1), planeToScreenY(rightY));
-            break;
-        }
-        case 13: {
-            fast_int topX = fast_clamp(interpolate(f1, f2, x0, x1), x0, x1);
-            fast_int rightY = fast_clamp(interpolate(f2, f4, y0, y1), y0, y1);
-
-            gfx_Line_NoClip(planeToScreenX(topX), planeToScreenY(y0), planeToScreenX(x1), planeToScreenY(rightY));
-            break;
-        }
-        case 14: {
-            fast_int topX = fast_clamp(interpolate(f1, f2, x0, x1), x0, x1);
-            fast_int leftY = fast_clamp(interpolate(f1, f3, y0, y1), y0, y1);
-
-            gfx_Line_NoClip(planeToScreenX(x0), planeToScreenY(leftY), planeToScreenX(topX), planeToScreenY(y0));
-            break;
-        }
+        case 6:
+            return TOP_TO_RIGHT_EDGE__BOTTOM_TO_LEFT_EDGE;
+        case 9:
+            return TOP_TO_LEFT_EDGE__BOTTOM_TO_RIGHT_EDGE;
         default:
-            gfx_Rectangle_NoClip(planeToScreenX(x0), planeToScreenY(y0), FIXED_TO_INT(fast_mul(size, planeToScreenRatioX)) + 1, FIXED_TO_INT(fast_mul(size, planeToScreenRatioY)) + 1);
-            break;
+            return NORMAL;
     }
 }
-        
+
+float minimumFunctionValue(float f1, float f2, float f3, float f4) {
+    return fminf(fminf(f1, f2), fminf(f3, f4));
+}
+
+float maximumFunctionValue(float f1, float f2, float f3, float f4) {
+    return fmaxf(fmaxf(f1, f2), fmaxf(f3, f4));
+}
+
+void processChildOfRegion(ImplicitFunction function, float x, float y, float size, uint8_t depth) {
+    float halfSize = size / 2;
+    processRegion(function, x, y, halfSize, depth + 1);
+    processRegion(function, x + halfSize, y, halfSize, depth + 1);
+    processRegion(function, x, y + halfSize, halfSize, depth + 1);
+    processRegion(function, x + halfSize, y + halfSize, halfSize, depth + 1);
+}
+
+void processRegion(ImplicitFunction function, float x, float y, float size, uint8_t depth) {
+    if(depth < MIN_DEPTH) {
+        processChildOfRegion(function, x, y, size, depth);
+        return;
+    } 
+    
+    if(depth >= MAX_DEPTH) {
+        renderRegion(function, x, y, size);
+        return;
+    }
+
+    float f1 = function(x, y);
+    float f2 = function(x + size, y);
+    float f3 = function(x, y + size);
+    float f4 = function(x + size, y + size);
+
+    float sampledMinimum = minimumFunctionValue(f1, f2, f3, f4);
+    float sampledMaximum = maximumFunctionValue(f1, f2, f3, f4);
+
+    if(sampledMinimum > 0 || sampledMaximum < 0) {
+        // no contour suspected within region
+        // use lipschitz constant to determine if region is flat and if has a contour
+
+        uint8_t samples = depth < 6 ? 2 : 1;
+        float lipschitzConstant = calculateLipschitzConstant(function, x, x + size, y, y + size, samples);
+
+        float regionDiameter = size * 2; // for simplicity for now
+
+        float possibleMinimum = sampledMinimum - lipschitzConstant * regionDiameter;
+        float possibleMaximum = sampledMaximum + lipschitzConstant * regionDiameter;
+
+        if(possibleMinimum > 0 || possibleMaximum < 0) return; // no contour
+    }
+    else {
+        // contour gauranteed (for continious fucntions)
+        // determine if contour is straight for early break
+
+        uint8_t squareIndex = calculateSquareIndex(f1, f2, f3, f4);
+        if(squareIndex == 0 || squareIndex == 15) return; // no contour
+
+        float contourX0, contourY0, contourX1, contourY1;
+        ContourCase contourCase = calculateContourCase(squareIndex);
+
+        calculateContourWithLinearInterpolation(x, y, size, squareIndex, f1, f2, f3, f4, &contourX0, &contourY0, &contourX1, &contourY1); // a rough contour placement
+
+        if(isContourStraight(function, contourX0, contourY0, contourX1, contourY1)) {
+            calculateContourWithNewtonMethod(function, x, y, size, squareIndex, contourX0, contourY0, contourX1, contourY1, &contourX0, &contourY0, &contourX1, &contourY1); // use netwon method for a more refined contour placement
+            
+            renderContour(planeToScreenX(contourX0), planeToScreenY(contourY0), planeToScreenX(contourX1), planeToScreenY(contourY1), contourCase);
+            return;
+        }
+    }
+
+    // contour suspected
+    processChildOfRegion(function, x, y, size, depth);
+
+    return;
+}
+
+void renderRegion(ImplicitFunction function, float x, float y, float size) {
+    float f1 = function(x, y);
+    float f2 = function(x + size, y);
+    float f3 = function(x, y + size);
+    float f4 = function(x + size, y + size);
+
+    uint8_t squareIndex = calculateSquareIndex(f1, f2, f3, f4);
+    if(squareIndex == 0 || squareIndex == 15) return; // no contour
+
+    float contourX0, contourY0, contourX1, contourY1;
+    ContourCase contourCase = calculateContourCase(squareIndex);
+
+    calculateContourWithLinearInterpolation(x, y, size, squareIndex, f1, f2, f3, f4, &contourX0, &contourY0, &contourX1, &contourY1); 
+    
+    renderContour(planeToScreenX(contourX0), planeToScreenY(contourY0), planeToScreenX(contourX1), planeToScreenY(contourY1), contourCase);
+}
+
+void marchingSquares(ImplicitFunction function, uint8_t color, int cellSize) {
+    gfx_SetColor(color);
+
+    int numberOfRows = (int)(GFX_LCD_HEIGHT / cellSize) + 1;
+    int numberOfColumns = (int)(GFX_LCD_WIDTH / cellSize) + 1;
+
+    float deltaX = (ViewWindow.maxX - ViewWindow.minX) / numberOfColumns;
+    float deltaY = (ViewWindow.maxY - ViewWindow.minY) / numberOfRows;
+
+    float *previousColumn = malloc((numberOfRows + 1) * sizeof(float));
+    float *currentColumn = malloc((numberOfRows + 1) * sizeof(float));
+
+    for(int row = 0; row <= numberOfRows; row++) {
+        float yPosition = ViewWindow.minY + row * deltaY;
+        previousColumn[row] = function(ViewWindow.minX, yPosition);
+    }
+
+    for(int column = 0; column < numberOfColumns; column++) {
+        float xPosition = ViewWindow.minX + column * deltaX;
+        float xNextPosition = xPosition + deltaX;
+
+        for(int row = 0; row <= numberOfRows; row++) {
+            float yPosition = ViewWindow.minY + row * deltaY;
+            currentColumn[row] = function(xNextPosition, yPosition);
+        }
+
+        for(int row = 0; row < numberOfRows; row++) {
+            float valueTopLeft = previousColumn[row];
+            float valueTopRight = currentColumn[row];
+            float valueBottomLeft = previousColumn[row + 1];
+            float valueBottomRight = currentColumn[row + 1];
+
+            uint8_t squareIndex = calculateSquareIndex(valueTopLeft, valueTopRight, valueBottomLeft, valueBottomRight);
+            if(squareIndex == 0 || squareIndex == 15) continue;
+
+            float contourX0, contourY0, contourX1, contourY1;
+            ContourCase contourCase = calculateContourCase(squareIndex);
+            calculateContourWithLinearInterpolation(xPosition, ViewWindow.minY + row * deltaY, deltaX, squareIndex, valueTopLeft, valueTopRight, valueBottomLeft, valueBottomRight, &contourX0, &contourY0, &contourX1, &contourY1);
+
+            renderContour(
+                planeToScreenX(contourX0), planeToScreenY(contourY0),
+                planeToScreenX(contourX1), planeToScreenY(contourY1),
+                contourCase
+            );
+        }
+
+        float *temp = previousColumn;
+        previousColumn = currentColumn;
+        currentColumn = temp;
+    }
+
+    free(previousColumn);
+    free(currentColumn);
+}
+
+
+
+
+
+
+
+
+
+
 
 int main(void) {
     gfx_Begin();
 
     startGraph();
 
-    //renderImplicitFunction(circle, 100);
-    renderImplicitFunction(hyperbola, 100);
-    //renderImplicitFunction(csc, 0);
-    renderImplicitFunction(line, 0);
+    quadTrees(circle, 100);
+    quadTrees(hyperbola, 100);
+    marchingSquares(csc, 0, 4);
+    quadTrees(line, 0);
+    quadTrees(gsin, 100);
+    marchingSquares(gtan, 0, 4);
 
     while(!os_GetCSC());
 

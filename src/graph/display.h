@@ -11,4 +11,10 @@
 
 typedef float (*ImplicitFunction)(float x, float y);
 
+extern bool drawAxesTicks;
+extern uint8_t axesColor;
+extern bool drawAxes;
+extern uint8_t axesTicksColor;
+
+
 #endif

@@ -27,21 +27,38 @@ fast_int fast_sub(fast_int a, fast_int b) {
 }
 
 fast_int fast_mul(fast_int a, fast_int b) {
-    // Split both operands into high and low 16-bit parts
-    int32_t a_high = a >> DECIMAL_BITS;           // High part of 'a'
+    // Extract signs
+    int sign = 1; // Positive by default
+    if (a < 0) {
+        sign = -sign; // Flip sign if 'a' is negative
+        a = -a;       // Take the absolute value of 'a'
+    }
+    if (b < 0) {
+        sign = -sign; // Flip sign if 'b' is negative
+        b = -b;       // Take the absolute value of 'b'
+    }
+
+    // Split operands into high and low parts
+    int32_t a_high = a >> DECIMAL_BITS;            // High part of 'a'
     int32_t a_low = a & ((1 << DECIMAL_BITS) - 1); // Low part of 'a'
-    int32_t b_high = b >> DECIMAL_BITS;           // High part of 'b'
+    int32_t b_high = b >> DECIMAL_BITS;            // High part of 'b'
     int32_t b_low = b & ((1 << DECIMAL_BITS) - 1); // Low part of 'b'
 
-    // Compute the four partial products
-    int32_t high_high = a_high * b_high;          // High bits * High bits
-    int32_t high_low = a_high * b_low;            // High bits * Low bits
-    int32_t low_high = a_low * b_high;            // Low bits * High bits
-    int32_t low_low = a_low * b_low;              // Low bits * Low bits
+    // Compute partial products
+    int32_t high_high = a_high * b_high;           // High * High
+    int32_t high_low = a_high * b_low;             // High * Low
+    int32_t low_high = a_low * b_high;             // Low * High
+    int32_t low_low = (a_low * b_low) >> DECIMAL_BITS; // Low * Low, scaled
 
-    // Combine the results with appropriate shifts
-    return (high_high << DECIMAL_BITS) + high_low + low_high + (low_low >> DECIMAL_BITS);
+    // Combine results within the correct range
+    int32_t result = (high_high << DECIMAL_BITS) + high_low + low_high + low_low;
+
+    // Restore the sign
+    return result * sign;
 }
+
+
+
 
 fast_int fast_div(fast_int a, fast_int b) {
     if (b == 0) return 0;
@@ -142,16 +159,21 @@ fast_int fast_exp(fast_int x) {
     return result;
 }
 fast_int fast_sqrt(fast_int x) {
-    if (x <= 0) return 0;
-    
-    fast_int guess = x >> 1;
+    if (x <= 0) return 0; // sqrt of non-positive numbers is zero in this implementation.
+
+    fast_int guess = x >> (DECIMAL_BITS / 2); // Initial guess: scaled down.
     fast_int prev_guess;
-    
+
+    const int MAX_ITERATIONS = 20; // Maximum number of iterations.
+    int iteration_count = 0;
+
     do {
         prev_guess = guess;
-        guess = (guess + FIXED_DIV(x, guess)) >> 1;
-    } while (prev_guess != guess);
-    
+        // Newton-Raphson update: guess = (guess + x / guess) / 2
+        guess = fast_div(fast_add(guess, fast_div(x, guess)), INT_TO_FIXED(2));
+        iteration_count++;
+    } while (fast_abs(guess - prev_guess) > epsilon && iteration_count < MAX_ITERATIONS);
+
     return guess;
 }
 fast_int fast_abs(fast_int x) {

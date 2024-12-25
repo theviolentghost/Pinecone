@@ -25,6 +25,8 @@ int setFastIntDecimalBits(int bits);
 #define FIXED_ADD(x, y) ((fast_int)((x) + (y)))
 #define FIXED_SUB(x, y) ((fast_int)((x) - (y)))
 
+fast_int fast_add(fast_int a, fast_int b);
+fast_int fast_sub(fast_int a, fast_int b);
 fast_int fast_mul(fast_int a, fast_int b);
 fast_int fast_div(fast_int a, fast_int b);
 fast_int fast_sin(fast_int x);
