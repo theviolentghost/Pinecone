@@ -48,6 +48,9 @@ float gsin(float x, float y) {
 float gtan(float x, float y) {
     return y - tanf(x);
 }
+float inverse(float x, float y) {
+    return x - 1/y;
+}
 
 struct {
     float minX, minY, maxX, maxY;
@@ -624,20 +627,22 @@ void marchingSquares(ImplicitFunction function, uint8_t color, int cellSize) {
 
 
 
-int main(void) {
+/*int main(void) {
     gfx_Begin();
 
     startGraph();
 
-    quadTrees(circle, 100);
-    quadTrees(hyperbola, 100);
-    marchingSquares(csc, 0, 4);
-    quadTrees(line, 0);
-    quadTrees(gsin, 100);
-    marchingSquares(gtan, 0, 4);
+    quadTrees(inverse, 100);
+    marchingSquares(inverse, 0, 4);
+    // quadTrees(circle, 100);
+    // quadTrees(hyperbola, 100);
+    // marchingSquares(csc, 0, 4);
+    // quadTrees(line, 0);
+    // quadTrees(gsin, 100);
+    // marchingSquares(gtan, 0, 4);
 
     while(!os_GetCSC());
 
     gfx_End();
     return 0;
-}
+}*/

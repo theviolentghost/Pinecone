@@ -11,12 +11,13 @@
 #ifndef INPUT_H
 #define INPUT_H
 
-typedef struct Input_handler Input_handler;
-typedef struct Display_char Display_char;
-typedef struct Fraction_char Fraction_char;
-typedef struct Function_char Function_char;
-typedef struct Exponent_char Exponent_char;
-typedef struct Bounds_char Bounds_char;
+typedef struct InputHandler InputHandler;
+typedef struct DisplayCharacter DisplayCharacter;
+typedef struct FractionCharacter FractionCharacter;
+typedef struct FunctionCharacter FunctionCharacter;
+typedef struct ExponentCharacter ExponentCharacter;
+typedef struct ParenthesesCharacter ParenthesesCharacter;
+typedef struct Bounds Bounds;
 
 typedef enum {
     SIN_FUNCTION,
@@ -43,141 +44,124 @@ typedef enum {
     EMPTY_CHARACTER,
     GAP_CHARACTER, //character inbetween fraction + exponents to allow for easy inserting
     PLACEHOLDER_CHARACTER, //the char you will see when fraction numerator/denominator/exponent are empty
-    CURSOR_CHARACTER,
-    VARIABLE_CHARACTER,     
+    CHARACTER_CHARACTER,     
     FUNCTION_CHARACTER, //for functions like abs, cos, etc
     FRACTION_CHARACTER,
     EXPONENT_CHARACTER,
+    PARENTHESES_CHARACTER,
 } CharacterType;
 
-struct Bounds_char {
+struct Bounds {
     int x;
     int y;
     int width;
     int height;
 };
 
-struct Function_char {
-    char border; 
-    int base;
-    struct Input_handler* baseInput; //input for base if applicable like roots and logs
-    FunctionName name;
-    struct Input_handler* input;    
-};
-
-struct Fraction_char {
-    struct Input_handler* numerator;    
-    struct Input_handler* denominator;
-};
-
-struct Exponent_char {
-    struct Input_handler* exponent; 
-};
-
-struct Display_char {
+struct DisplayCharacter {
     CharacterType type;
-    uint8_t value;
-    int scale;
     union {
-        char variable;    
-        struct Function_char* function;
-        struct Fraction_char* fraction; 
-        struct Exponent_char* exponent;
+        char character;    
+        struct FunctionCharacter* function;
+        struct FractionCharacter* fraction; 
+        struct ExponentCharacter* exponent;
+        struct ParenthesesCharacter* parentheses;
     } data;
-    struct Display_char* left;
-    struct Display_char* right;
-    void (*setPosition)(Display_char*, Bounds_char*, int, int, int);
-    void (*display)(Display_char*, int, int);
-    int (*getAboveOriginHeight)(Display_char*);
-    int (*getBelowOriginHeight)(Display_char*);
-    int x;
-    int y;
-    int (*getWidth)(Display_char*);
-    int (*getHeight)(Display_char*);
+    Bounds bounds;
 };
 
-struct Input_handler {
-    Display_char* buffer;
+struct FractionCharacter {
+    InputHandler* numerator;    
+    InputHandler* denominator;
+};
+
+struct ExponentCharacter {
+    InputHandler* exponent; 
+};
+
+struct FunctionCharacter {
+    char border; // '(' or '['
+    InputHandler* baseInput; //input for base if applicable like roots and logs
+    FunctionName name;
+    InputHandler* input;    
+};
+
+struct ParenthesesCharacter {
+    bool open; // true if open, false if closed
+    char type; // '(' or '['
+    int selfIndex; // index of the character that represents this parenthese
+    int connectingIndex; // index of the character that connects to this parentheses
+};
+
+struct InputHandler {
+    DisplayCharacter* buffer;
+    int scale; // scale of the diplay chars
     int capacity; //current capacity of the buffer
-    int scale;
-    int size;
-    int position;
-    int maxSize;
-    // int lastStartRenderingIndex; //used to keep track of where to start rendering - for preformance
-    // int lastEndRenderingIndex; //used to keep track of where to end rendering - for preformance
-    // int lastPositionIndex; //used to keep track of where the cursor was last
-    Input_handler* left;
-    Input_handler* right;
-    Bounds_char* currentBounds;
-    Bounds_char* maxBounds;
+    int size; //current size of the buffer
+    int position; //current position of the cursor
+    int maxSize; 
+    bool inFocus;
+    InputHandler* leftHandler;
+    InputHandler* rightHandler;
+    InputHandler* upFocus; // which handler to focus on when up is pressed
+    InputHandler* downFocus; // which handler to focus on when down is pressed or enter is pressed
+    Bounds bounds;
+    Bounds window;
 };
 
-void initializeFonts(void);
-
-void freeInputHandler(Input_handler* handler);
-void freeCharacter(Display_char* character);
-
-void recordInput(Input_handler* handler, int direction);
-void setInputCharacterPositions(Input_handler* handler, int offsetX, int offsetY);
-void renderInput(Input_handler* handler, bool clear, int offsetX, int offsetY);
-void positionCursor(Input_handler* handler, int position, int offsetX, int offsetY);
-void renderCursor(Input_handler* handler, int offsetX, int offsetY, bool nullCursor);
-void deleteLastCursor(Input_handler* handler);
-void setCursorAtPosition(Input_handler* handler, int position);
-Input_handler* createInputHandler( int maxSize);
-bool resizeBuffer(Input_handler* handler, int extraCapacity);
-void clearInputHandler(Input_handler* handler, bool havePlaceholder);
-int getExpressionHeight(Input_handler* handler);
-int getExpressionAboveOriginHeight(Input_handler* handler);
-int getExpressionBelowOriginHeight(Input_handler* handler);
-int getExpressionWidth(Input_handler* handler);
-void renderCharAt(char character, int x, int y, int scale);
+char keyToChar(uint8_t key);
+void freeInputHandler(InputHandler* handler);
+void freeDisplayCharacter(DisplayCharacter* character);
+DisplayCharacter* createDisplayCharacter(CharacterType type);
+InputHandler* createInputHandler();
+DisplayCharacter* createCharacter(char character);
+DisplayCharacter* createFractionCharacter();
+DisplayCharacter* createPlaceHolderCharacter();
 void renderStringAt(const char* string, int x, int y, int scale);
-
-void createPlaceholderChar(Display_char* element, int scale);
-void createGapChar(Display_char* element, int scale);
-void initializeDisplayChar(Display_char* element, int scale);
-void initializeExponentPlaceholder(Display_char* element, int scale);
-void initializeFractionPlaceholders(Display_char* element, int scale);
-void initializeFunctionPlaceholders(Display_char* element, int scale);
-bool isValidExponentPosition(Input_handler* handler);
-void setupExponentRendering(Display_char* element);
-void setupFractionRendering(Display_char* element);
-void setupFunctionRendering(Display_char* element);
-void setupExponentLinks(Input_handler* handler, Display_char* element);
-void setupFractionLinks(Input_handler* handler, Display_char* element);
-void setupFunctiontLinks(Input_handler* handler, Display_char* element);
-
-void Character_setPosition(Display_char* node, Bounds_char* currentBounds, int originY, int offsetX, int offsetY);
-void Character_render(Display_char* node, int offsetX, int offsetY);
-int Character_getAboveOriginHeight(Display_char* node);
-int Character_getBelowOriginHeight(Display_char* node);
-int Character_getWidth(Display_char* node);
-int Character_getHeight(Display_char* node);
-
-void Fraction_setPosition(Display_char* node, Bounds_char* currentBounds, int originY, int offsetX, int offsetY);
-void Fraction_render(Display_char* node, int offsetX, int offsetY);
-int Fraction_getAboveOriginHeight(Display_char* node);
-int Fraction_getBelowOriginHeight(Display_char* node);
-int Fraction_getWidth(Display_char* node);
-int Fraction_getHeight(Display_char* node);
-
-void Exponent_setPosition(Display_char* node, Bounds_char* currentBounds, int originY, int offsetX, int offsetY);
-void Exponent_render(Display_char* node, int offsetX, int offsetY);
-int Exponent_getAboveOriginHeight(Display_char* node);
-int Exponent_getBelowOriginHeight(Display_char* node);
-int Exponent_getWidth(Display_char* node);
-int Exponent_getHeight(Display_char* node);
-
-void Function_setPosition(Display_char* node, Bounds_char* currentBounds, int originY, int offsetX, int offsetY);
-void Function_render(Display_char* node, int offsetX, int offsetY);
-int Function_getAboveOriginHeight(Display_char* node);
-int Function_getBelowOriginHeight(Display_char* node);
-int Function_getWidth(Display_char* node);
-int Function_getHeight(Display_char* node);
-int Function_getNameWidth(Display_char* node);
-
-void Input_shiftRight(Input_handler* handler, int initialPosition);
-void Input_shiftLeft(Input_handler* handler, int initialPosition);
+void renderCharAt(char character, int x, int y, int scale);
+void renderDisplayCharacter(DisplayCharacter* node, int scale, int offsetX, int offsetY);
+void renderInputHandler(InputHandler* handler, int offsetX, int offsetY);
+void Character_render(DisplayCharacter* node, int scale, int offsetX, int offsetY);
+void Fraction_render(DisplayCharacter* node, int scale, int offsetX, int offsetY);
+void setDisplayCharacterPosition(DisplayCharacter* node, int scale, int originY, int offsetX, int offsetY);
+void setInputHandlerPosition(InputHandler* handler, int scale, int originY, int offsetX, int offsetY);
+int getDisplayCharacterBelowOriginHeight(DisplayCharacter* node, int scale);
+int getDisplayCharacterAboveOriginHeight(DisplayCharacter* node, int scale);
+int getDisplayCharacterWidth(DisplayCharacter* node);
+int getDisplayCharacterHeight(DisplayCharacter* node, int scale);
+int getInputHandlerBelowOriginHeight(InputHandler* handler, int scale);
+int getInputHandlerAboveOriginHeight(InputHandler* handler, int scale);
+int getInputHandlerWidth(InputHandler* handler);
+int getInputHandlerHeight(InputHandler* handler, int scale);
+void Character_setPosition(DisplayCharacter* node, int scale, int originY, int offsetX, int offsetY);
+void Fraction_setPosition(DisplayCharacter* node, int scale, int originY, int offsetX, int offsetY);
+void recordInput(InputHandler* handler);
+void appendDisplayCharacter(InputHandler* handler, DisplayCharacter* character);
+void setDisplayCharacterAtPosition(InputHandler* handler, int position, DisplayCharacter* character);
+void renderInput(InputHandler* mainHandler, InputHandler* focusHandler);
+void renderCursor(InputHandler* mainHandler, InputHandler* handler, int offsetX, int offsetY, bool nullCursor);
+void addDisplayCharacterAtPosition(InputHandler* handler, int position, DisplayCharacter* character);
+int Input_moveLeft(InputHandler* handler);
+int Input_moveRight(InputHandler* handler);
+void Input_shiftElementsLeft(InputHandler* handler, int position);
+void Input_shiftElementsRight(InputHandler* handler, int position);
+bool manageSpecialKeyStates(uint8_t key);
+void Placeholder_render(DisplayCharacter* node, int scale, int offsetX, int offsetY);
+DisplayCharacter* createGapCharacter();
+void deleteCharacterAtPosition(InputHandler* handler, int position, bool force);
+void insertDisplayCharacterAtPosition(InputHandler* handler, int position, DisplayCharacter* character);
+void Exponent_setPosition(DisplayCharacter* node, int scale, int originY, int offsetX, int offsetY);
+void Exponent_render(DisplayCharacter* node, int scale, int offsetX, int offsetY);
+DisplayCharacter* createFunctionCharacter(FunctionName name);
+void Function_setPosition(DisplayCharacter* node, int scale, int originY, int offsetX, int offsetY);
+void Function_render(DisplayCharacter* node, int scale, int offsetX, int offsetY);
+bool functionHasNegativeOne(FunctionName name);
+bool functionHasBase(FunctionName name);
+int Function_getNameWidth(DisplayCharacter* node);
+char* Function_getName(DisplayCharacter* node);
+int functionBorderWidth(DisplayCharacter node);
+FunctionName characterToFunctionCharacter (char character);
+bool functionRequiresSpecialRendering(FunctionName name);
+int getStringWidth(const char* string);
 
 #endif

@@ -6,9 +6,9 @@
 #include "AST.h"
 #include "../global.h"
 
-Node* InputToAST(Input_handler* handler) {
-    return NULL;
-}
-Input_handler* ASTToInput(Node* node) {
-    return NULL;
-}
+// Node* InputToAST(InputHandler* handler) {
+//     return NULL;
+// }
+// InputHandler* ASTToInput(Node* node) {
+//     return NULL;
+// }

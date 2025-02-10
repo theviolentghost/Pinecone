@@ -9,7 +9,7 @@
 #include "AST.h"
 #include "../global.h"
 
-Node* InputToAST(Input_handler* handler);
-Input_handler* ASTToInput(Node* node);
+// Node* InputToAST(InputHandler* handler);
+// InputHandler* ASTToInput(Node* node);
 
 #endif

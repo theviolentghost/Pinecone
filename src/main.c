@@ -8,6 +8,7 @@
 #include <keypadc.h>
 #include <tice.h>
 
+#include "font.h"
 #include "input.h"
 #include "global.h"
 #include "graph/display.h"
@@ -52,30 +53,23 @@ Catalog_Function_Pointer getFunction(const char* name) {
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-float circle_function(float x, float y) {
-    return x*x + y*y - 1;
-}
-
-/*int main() {
+int main() {
     gfx_Begin();
 
     initializeFonts();
 
-    Input_handler* input = createInputHandler(256);
-    if (input) {
-        input->maxBounds->x = 50;
-        input->maxBounds->y = 50;
-        input->maxBounds->width = GFX_LCD_WIDTH - 100;
-        input->maxBounds->height = GFX_LCD_HEIGHT - 100;
-        input->currentBounds->x = 50;
-        input->currentBounds->y = 50;
-        input->scale = 1;
-        recordInput(input, 1);
-        freeInputHandler(input);
+    InputHandler* input = createInputHandler();
+    if(input) {
+        input->window.x = 30;
+        input->window.y = 30;
+        input->window.width = 250;
+        input->window.height = 200;
+        // input->scale = 2;
     }
+    recordInput(input);
     gfx_End();
 
     return 0;
-}*/
+}
 
 
