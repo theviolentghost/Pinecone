@@ -1236,21 +1236,16 @@ void Input_shiftElementsLeft(InputHandler* handler, int position) {
 }
 
 void Input_shiftElementsRight(InputHandler* handler, int position) {
-    if(!handler || !handler->buffer) return;
-    if(handler->size - 1 >= handler->capacity) return;
+    if (!handler || !handler->buffer)
+        return;
+    if (handler->size >= handler->capacity)
+        return; // no capacity left
 
-    // shifts all elements to the right
-    // all elements to the right of position are moved to the right
-
-    bool lastElementExists = handler->size >= handler->capacity;
-
-    for(int i = handler->size + 1; i > position; i--) {
+    for (int i = handler->size; i > position; i--) {
         handler->buffer[i] = handler->buffer[i - 1];
     }
-
-    if(!lastElementExists) handler->size++;
-
-}   
+    handler->size++;
+}
 
 void renderCursor(InputHandler* mainHandler, InputHandler* handler, int offsetX, int offsetY, bool nullCursor) {
     static uint_fast8_t ticker = 0;

@@ -44,7 +44,7 @@ typedef enum {
     EMPTY_CHARACTER,
     GAP_CHARACTER, //character inbetween fraction + exponents to allow for easy inserting
     PLACEHOLDER_CHARACTER, //the char you will see when fraction numerator/denominator/exponent are empty
-    CHARACTER_CHARACTER,     
+    CHARACTER_CHARACTER, // either a number or symbol
     FUNCTION_CHARACTER, //for functions like abs, cos, etc
     FRACTION_CHARACTER,
     EXPONENT_CHARACTER,
