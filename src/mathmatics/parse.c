@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <math.h>
+#include "AST.h"
 #include "../input.h"
 #include "AST.h"
 #include "../global.h"
@@ -14,8 +16,8 @@ Node* InputHandlerToAbstractSyntaxTree(InputHandler* handler) {
 
         Node* term = parseTerm(handler, &index);
      }
-
 }
+
 InputHandler* AbstractSyntaxTreeToInputHandler(Node* node) {
      return NULL;
 }
@@ -27,12 +29,13 @@ bool canParseDisplayCharacter(DisplayCharacter* character) {
     );
 }
 
-
 bool isDigit(char character) {
-    return character >= '0' && character <= '9';
+    return (character >= '0' && character <= '9');
 }
+
 int characterToDigit(char character) {
-    //assumes isDigit == true
+    //assumes isDigit == true 
+    if(character == '.') return 10;
     return character - '0';
 }
 
@@ -51,14 +54,25 @@ Node* parseTerm(InputHandler* handler, int* index) {
 
 Node* parseNumber(InputHandler* handler, int* index) {
     //assumes first character is a digit
-    int number = 0;
+    float number = 0;
+    bool isDecimal = false;
+    int decimalPlace = 1;
 
     do {
-        number *= 10; // shift left
-        number += characterToDigit(handler->buffer[*index].data.character);
+        int digit = characterToDigit(handler->buffer[*index].data.character);
+        if(digit == 10) {
+            if(isDecimal) return NULL; // multiple decimal points
+            isDecimal = true;
+            continue;
+        }
+
+        if(!isDecimal) number *= 10; // shift left
+
+        
+        number += isDecimal ? (digit(float) / powf(10, decimalPlace++)) : digit;
 
         (*index)++;
-    } while(isDigit(handler->buffer[*index].data.character));
+    } while(isDigit(handler->buffer[*index].data.character) || handler->buffer[*index].data.character == '.'); //include decimal point
 
     return NULL; // return new constant node of number
 }

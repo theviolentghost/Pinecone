@@ -36,6 +36,7 @@ typedef enum {
     ROOT_FUNCTION,
     ABSOLUTE_FUNCTION,
     LOG_FUNCTION,
+    LOG_10_FUNCTION,
     LOG_BASE_FUNCTION,
     LN_FUNCTION,
 } FunctionName;

@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "getcsc.h": "c"
+        "getcsc.h": "c",
+        "math.h": "c"
     }
 }

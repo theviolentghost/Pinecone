@@ -1,5 +1,12 @@
 #include <stdbool.h>
 #include <stdlib.h>
+#include <math.h>
+#include <string.h>
+
+#include "../input.h"
+#include "AST.h"
+#include "../global.h"
+#include "variableMap.h"
 
 typedef enum {
     NULL_NODE,
@@ -9,9 +16,298 @@ typedef enum {
     FUNCTION_NODE,
 } NodeType;
 
+typedef enum {
+    SUCCESS,
+    DIVIDE_BY_ZERO,
+    UNDEFINED, // function returned undefined value
+    IMAGINARY, // function returned imaginary value
+    INVALID_ARGUMENT,
+    INVALID_OPERATOR,
+    INVALID_FUNCTION,
+    INVALID_VARIABLE,
+    INVALID_CONSTANT,
+    INVALID_NODE,
+    INVALID_MAP,
+    INVALID_KEY,
+    INVALID_VALUE,
+} ErrorCode;
+
+struct VariableMap
+
+typedef struct Node Node;
+typedef struct OperatorNode OperatorNode;
+typedef struct ConstantNode ConstantNode;
+typedef struct VariableNode VariableNode;
+typedef struct FunctionNode FunctionNode;
+
 struct Node {
     NodeType type;
     union {
-
+        struct OperatorNode* operator;
+        struct ConstantNode* constant;
+        struct VariableNode* variable;
+        struct FunctionNode* function;
     } data;
 };
+
+struct OperatorNode {
+    char operator;
+    Node* left;
+    Node* right;
+};
+
+struct ConstantNode {
+    float value;
+};
+
+struct VariableNode {
+    char variable;
+};
+
+struct FunctionNode {
+    FunctionName function;
+    Node* argument;
+};
+
+Node* Constant(float value) {
+    Node* node = malloc(sizeof(Node));
+
+    if(!node) return NULL;
+    node->type = CONSTANT_NODE;
+
+    node->data.constant = malloc(sizeof(ConstantNode));
+    if(!node->data.constant) {
+        free(node);
+        return NULL;
+    }
+    node->data.constant->value = value;
+
+    return node;
+}
+
+Node* Variable(char variable) {
+    Node* node = malloc(sizeof(Node));
+
+    if(!node) return NULL;
+    node->type = VARIABLE_NODE;
+
+    node->data.variable = malloc(sizeof(VariableNode));
+    if(!node->data.variable) {
+        free(node);
+        return NULL;
+    }
+    node->data.variable->variable = variable;
+
+    return node;
+}
+
+Node* Function(FunctionName function, Node* argument) {
+    Node* node = malloc(sizeof(Node));
+
+    if(!node) return NULL;
+    node->type = FUNCTION_NODE;
+
+    node->data.function = malloc(sizeof(FunctionNode));
+    if(!node->data.function) {
+        free(node);
+        return NULL;
+    }
+    node->data.function->function = function;
+    node->data.function->argument = argument;
+
+    return node;
+}
+
+Node* Operator(char operator, Node* left, Node* right) {
+    Node* node = malloc(sizeof(Node));
+
+    if(!node) return NULL;
+    node->type = BINARY_NODE;
+
+    node->data.operator = malloc(sizeof(OperatorNode));
+    if(!node->data.operator) {
+        free(node);
+        return NULL;
+    }
+    node->data.operator->operator = operator;
+    node->data.operator->left = left;
+    node->data.operator->right = right;
+
+    return node;
+}
+
+void freeNode(Node* node) {
+    if(!node) return;
+
+    switch(node->type) {
+        case CONSTANT_NODE:
+            free(node->data.constant);
+            break;
+        case VARIABLE_NODE:
+            free(node->data.variable);
+            break;
+        case FUNCTION_NODE:
+            freeNode(node->data.function->argument);
+            free(node->data.function);
+            break;
+        case BINARY_NODE:
+            freeNode(node->data.operator->left);
+            freeNode(node->data.operator->right);
+            free(node->data.operator);
+            break;
+        default:
+            break;
+    }
+
+    free(node);
+}
+
+///////////////////////////////////////////////////////////////////
+// tree manipulation functions
+
+float evaluateNode(Node* rootNode, VariableMap* variables, ErrorCode* error) {
+    if(!rootNode) return 0.0;
+    float value = 0.0;
+
+    switch(rootNode->type) {
+        case CONSTANT_NODE:
+            return rootNode->data.constant->value;
+        case VARIABLE_NODE:
+            value = variableMapGet(variables, rootNode->data.variable->variable);
+            if(value == NAN) {
+                *error = INVALID_VARIABLE;
+                return 0.0;
+            }
+            break;
+        case FUNCTION_NODE:
+            value = evaluateFunctionNode(rootNode, rootNode->data->function->argument, variables, error);
+            break;
+        case BINARY_NODE:
+            // return evaluateBinaryNode(rootNode, variables, error);
+            break;
+        default:
+            *error = INVALID_NODE;
+    }
+
+    return value;
+     
+}
+
+float Function_evaluate(FunctionName function, Node* argument, VariableMap* variables ErrorCode* error) {
+    float argumentValue = evaluateNode(argument, variables, error);
+    if(*error != SUCCESS) return 0.0; // error occurred
+
+    switch(function) {
+        case SIN_FUNCTION:
+            return sinf(argumentValue);
+        case COS_FUNCTION:
+            return cosf(argumentValue);
+        case TAN_FUNCTION:
+            return tanf(argumentValue);
+        case CSC_FUNCTION:
+            float denominator = sinf(argumentValue);
+            if(denominator == 0) {
+                *error = UNDEFINED;
+                return 0.0;
+            }
+            return 1.0 / denominator;
+        case SEC_FUNCTION:
+            denominator = cosf(argumentValue);
+            if(denominator == 0) {
+                *error = UNDEFINED;
+                return 0.0;
+            }
+            return 1.0 / denominator;
+        case COT_FUNCTION:
+            denominator = tanf(argumentValue);
+            if(denominator == 0) {
+                *error = UNDEFINED;
+                return 0.0;
+            }
+            return 1.0 / denominator;
+        case INVSIN_FUNCTION:
+            return asinf(argumentValue);
+        case INVCOS_FUNCTION:
+            return acosf(argumentValue);
+        case INVTAN_FUNCTION:
+            return atanf(argumentValue);
+        case INVCSC_FUNCTION:
+            if(argumentValue == 0) {
+                *error = UNDEFINED;
+                return 0.0;
+            }
+            return asinf(1.0 / argumentValue);
+        case INVSEC_FUNCTION:
+            if(argumentValue == 0) {
+                *error = UNDEFINED;
+                return 0.0;
+            }
+            return acosf(1.0 / argumentValue);
+        case INVCOT_FUNCTION:    
+            if(argumentValue == 0) {
+                *error = UNDEFINED;
+                return 0.0;
+            }
+            return atanf(1.0 / argumentValue);
+        case SQRT_FUNCTION:
+            if(argumentValue < 0) {
+                *error = IMAGINARY;
+                return 0.0;
+            }
+            return sqrtf(argumentValue);
+        case ABSOLUTE_FUNCTION:
+            return fabsf(argumentValue);
+        case LOG_FUNCTION:
+        case LN_FUNCTION:
+            if(argumentValue <= 0) {
+                *error = INVALID_ARGUMENT;
+                return 0.0;
+            }
+            return logf(argumentValue);
+        case LOG_10_FUNCTION:
+            if(argumentValue <= 0) {
+                *error = INVALID_ARGUMENT;
+                return 0.0;
+            }
+            return log10f(argumentValue);
+        default:
+            *error = INVALID_FUNCTION;
+            return 0.0;
+    }
+}
+
+float Function_baseEvaluate(FunctionName function, Node* base, Node* argument, VariableMap* variables, ErrorCode* error) {
+    // for functions that have a base: logs, roots
+
+    float baseValue = evaluateNode(base, variables, error);
+    if(*error != SUCCESS) return 0.0; // error occurred
+
+    float argumentValue = evaluateNode(argument, variables, error);
+    if(*error != SUCCESS) return 0.0; // error occurred
+
+    switch(function) {
+        case LOG_BASE_FUNCTION:
+            if(baseValue <= 0 || baseValue == 1) {
+                *error = INVALID_ARGUMENT;
+                return 0.0;
+            }
+            if(argumentValue <= 0) {
+                *error = INVALID_ARGUMENT;
+                return 0.0;
+            }
+            return logf(argumentValue) / logf(baseValue);
+        case ROOT_FUNCTION:
+            if(baseValue <= 0 || baseValue == 1) {
+                *error = INVALID_ARGUMENT;
+                return 0.0;
+            }
+            if(argumentValue < 0) {
+                *error = IMAGINARY;
+                return 0.0;
+            }
+            return powf(argumentValue, 1.0 / baseValue);
+        default:
+            *error = INVALID_FUNCTION;
+            return 0.0;
+    }
+}
