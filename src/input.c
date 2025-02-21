@@ -12,7 +12,7 @@
 #include "font.h"
 
 #define MAX_INPUT_SIZE 128
-#define INITIAL_CAPACITY 32
+#define INITIAL_CAPACITY 8
 #define CAPACITY_INCREASE_FACTOR 24
 
 //todo fix jankiness with left and right movement between fractions

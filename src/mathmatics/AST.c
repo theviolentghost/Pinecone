@@ -112,13 +112,13 @@ Node* Function(FunctionName function, Node* argument) {
         free(node);
         return NULL;
     }
-    node->data.function->function = function;
+    node->data.function->name = function;
     node->data.function->argument = argument;
 
     return node;
 }
 
-Node* Operator(char operator, Node* left, Node* right) {
+Node* Operator(OperationType operator, Node* left, Node* right) {
     Node* node = malloc(sizeof(Node));
 
     if(!node) return NULL;
@@ -180,10 +180,10 @@ float evaluateNode(Node* rootNode, VariableMap* variables, ErrorCode* error) {
             }
             break;
         case FUNCTION_NODE:
-            value = evaluateFunctionNode(rootNode, rootNode->data->function->argument, variables, error);
+            value = Function_evaluate(rootNode, rootNode->data->function->argument, variables, error);
             break;
         case BINARY_NODE:
-            // return evaluateBinaryNode(rootNode, variables, error);
+            value = Binary_evaluate(rootNode, variables, error);
             break;
         default:
             *error = INVALID_NODE;
@@ -194,6 +194,11 @@ float evaluateNode(Node* rootNode, VariableMap* variables, ErrorCode* error) {
 }
 
 float Function_evaluate(FunctionName function, Node* argument, VariableMap* variables ErrorCode* error) {
+    if(!base || !argument) {
+        *error = INVALID_ARGUMENT;
+        return 0.0;
+    }
+
     float argumentValue = evaluateNode(argument, variables, error);
     if(*error != SUCCESS) return 0.0; // error occurred
 
@@ -278,6 +283,10 @@ float Function_evaluate(FunctionName function, Node* argument, VariableMap* vari
 
 float Function_baseEvaluate(FunctionName function, Node* base, Node* argument, VariableMap* variables, ErrorCode* error) {
     // for functions that have a base: logs, roots
+    if(!base || !argument) {
+        *error = INVALID_ARGUMENT;
+        return 0.0;
+    }
 
     float baseValue = evaluateNode(base, variables, error);
     if(*error != SUCCESS) return 0.0; // error occurred
@@ -311,3 +320,43 @@ float Function_baseEvaluate(FunctionName function, Node* base, Node* argument, V
             return 0.0;
     }
 }
+
+float Binary_evaluate (Node* rootNode, VariableMap* variables, ErrorCode* error) {
+    if(!rootNode) {
+        *error = INVALID_NODE;
+        return 0.0;
+    }
+    if(rootNode->type != BINARY_NODE) {
+        *error = INVALID_NODE;
+        return 0.0;
+    }
+
+    float leftValue = evaluateNode(rootNode->data.operator->left, variables, error);
+    if(*error != SUCCESS) return 0.0; // error occurred
+
+    float rightValue = evaluateNode(rootNode->data.operator->right, variables, error);
+    if(*error != SUCCESS) return 0.0; // error occurred
+
+    switch(rootNode->data.operator->operator) {
+        case ADDITION:
+            return leftValue + rightValue;
+        case SUBTRACTION:
+            return leftValue - rightValue;
+        case MULTIPLICATION:
+            return leftValue * rightValue;
+        case DIVISION:
+            if(rightValue == 0) {
+                *error = DIVIDE_BY_ZERO;
+                return 0.0;
+            }
+            return leftValue / rightValue;
+        case EXPONENT:
+            return powf(leftValue, rightValue);
+        default:
+            *error = INVALID_OPERATOR;
+            return 0.0;
+    }
+}
+
+
+///////////////////////////////////////////////////////////////////

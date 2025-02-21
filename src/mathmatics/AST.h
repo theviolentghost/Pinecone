@@ -14,6 +14,14 @@ typedef enum {
     FUNCTION_NODE,
 } NodeType;
 
+typedef enum {
+    ADDITION,
+    SUBTRACTION,
+    MULTIPLICATION,
+    DIVISION,
+    EXPONENT,
+} OperationType;
+
 struct VariableMap
 
 typedef struct Node Node;
@@ -33,7 +41,7 @@ struct Node {
 };
 
 struct OperatorNode {
-    char operator;
+    OperationType operator;
     Node* left;
     Node* right;
 };
@@ -47,7 +55,7 @@ struct VariableNode {
 };
 
 struct FunctionNode {
-    FunctionName function;
+    FunctionName name;
     Node* argument;
 };
 
