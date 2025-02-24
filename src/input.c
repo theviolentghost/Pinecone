@@ -12,7 +12,7 @@
 #include "font.h"
 
 #define MAX_INPUT_SIZE 128
-#define INITIAL_CAPACITY 8
+#define INITIAL_CAPACITY 48 // chnage later to lower num
 #define CAPACITY_INCREASE_FACTOR 24
 
 //todo fix jankiness with left and right movement between fractions
@@ -879,8 +879,16 @@ void Function_setPosition(DisplayCharacter* node, int scale, int originY, int of
 /////////////////////////////////////////
 
 void recordInput(InputHandler* handler) {
-    if (!handler || !handler->buffer) return;
+    InputHandler* handlerToRecord = handler;
+    while(handlerToRecord) {
+        handlerToRecord = manageInput(handlerToRecord);
+    }
+}
 
+InputHandler* manageInput(InputHandler* handler) {
+    if (!handler || !handler->buffer) return NULL;
+
+    handler->position = fmin(fmax(handler->position, 0), handler->size - 1); // clamp position
     handler->inFocus = true;
 
     InputHandler* mainInput = handler;
@@ -901,10 +909,9 @@ void recordInput(InputHandler* handler) {
         if (key && key != previousKey) {
             if(!enoughCapacity(handler, 4)) { // 4 is the maximum amount of characters that should be added at once
                 bool increaseAllowed = increaseCapacity(handler);
+                // fix later
 
-                if(!increaseAllowed) {
-                    return;
-                }
+                if(!increaseAllowed) return NULL;
             }
 
             char character = keyToChar(key);
@@ -915,14 +922,19 @@ void recordInput(InputHandler* handler) {
             }
 
             switch (character) {
+                case '?': {
+                    continue;
+                }
                 case Character_Left: { // shift position left
-                    int result = Input_moveLeft(handler);
-                    if(result == 1) return; // exit loop
+                    InputHandler* result = Input_moveLeft(handler);
+                    if(result) return result; // exit loop
+
                     break;
                 }
                 case Character_Right: { // shift position right
-                    int result = Input_moveRight(handler);
-                    if(result == 1) return; // exit loop
+                    InputHandler* result = Input_moveRight(handler);
+                    if(result) return result; // exit loop
+
                     break;
                 }
                 case Character_Delete: { // delete character at position
@@ -932,8 +944,8 @@ void recordInput(InputHandler* handler) {
                         // implying that current handler is empty so delete it and move to left handler if it exists
                         // only exception if it is a main input (does not have left handler)
                         deleteCharacterAtPosition(handler->leftHandler, handler->leftHandler->position, false); //delete fraction/exponent
-                        recordInput(handler->leftHandler);
-                        return; // exit loop
+                        return(handler->leftHandler);
+
                     }
                     break;
                 }
@@ -942,8 +954,7 @@ void recordInput(InputHandler* handler) {
                         // implying that current handler is empty so delete it and move to left handler if it exists
                         // only exception if it is a main input (does not have left handler)
                         deleteCharacterAtPosition(handler->leftHandler, handler->leftHandler->position, false); //delete fraction/exponent
-                        recordInput(handler->leftHandler);
-                        return; // exit loop
+                        return(handler->leftHandler);
                     }
                     clearInputHandler(handler, false);
                     break;
@@ -958,8 +969,7 @@ void recordInput(InputHandler* handler) {
                         fraction->data.fraction->denominator->rightHandler = handler;
 
                         // start inputing into the numerator of fraction
-                        recordInput(fraction->data.fraction->numerator);
-                        return; // break out of this loop
+                        return(fraction->data.fraction->numerator);
                     }
                     break;
                 }
@@ -984,8 +994,7 @@ void recordInput(InputHandler* handler) {
                         exponent->data.exponent->exponent->leftHandler = handler;
                         exponent->data.exponent->exponent->rightHandler = handler;
                         // start inputing into the exponent
-                        recordInput(exponent->data.exponent->exponent);
-                        return; // break out of this loop
+                        return(exponent->data.exponent->exponent);
                     }
                     break;
                 }
@@ -1024,8 +1033,7 @@ void recordInput(InputHandler* handler) {
                         }
 
                         // start inputing into the function
-                        recordInput(function->data.function->input);
-                        return; // break out of this loop
+                        return(function->data.function->input);
                     }
                     break;
                 }
@@ -1043,6 +1051,8 @@ void recordInput(InputHandler* handler) {
 
         previousKey = key;
     } while(key != sk_Enter);
+
+    return NULL;
 }
 
 void renderInput(InputHandler* mainHandler, InputHandler* focusHandler) {
@@ -1133,7 +1143,7 @@ void deleteCharacterAtPosition(InputHandler* handler, int position, bool force) 
     }
 }
 
-int Input_moveLeft(InputHandler* handler) {
+InputHandler* Input_moveLeft(InputHandler* handler) {
     if(!handler || !handler->buffer) return -1;
 
     if(handler->position > 0) {
@@ -1141,36 +1151,34 @@ int Input_moveLeft(InputHandler* handler) {
 
         if(handler->buffer[handler->position].type == FRACTION_CHARACTER) {
             handler->inFocus = false;
-            recordInput(handler->buffer[handler->position].data.fraction->denominator);
-            return 1; // return 1 to exit recordInput loop
+            return(handler->buffer[handler->position].data.fraction->denominator);
         }
         if(handler->buffer[handler->position].type == EXPONENT_CHARACTER) {
             handler->inFocus = false;
-            recordInput(handler->buffer[handler->position].data.exponent->exponent);
-            return 1; // return 1 to exit recordInput loop
+            return(handler->buffer[handler->position].data.exponent->exponent);
         }
         if(handler->buffer[handler->position].type == FUNCTION_CHARACTER) {
             handler->inFocus = false;
-            recordInput(handler->buffer[handler->position].data.function->input);
-            return 1; // return 1 to exit recordInput loop
+            return(handler->buffer[handler->position].data.function->input);
         }
     } else if(handler->leftHandler) {
         // move to next left handler if it exists
         handler->inFocus = false;
 
         InputHandler* leftHandler = handler->leftHandler;
-        while(leftHandler->buffer[leftHandler->position].type == FRACTION_CHARACTER || leftHandler->buffer[leftHandler->position].type == EXPONENT_CHARACTER) {
-            int result = Input_moveLeft(leftHandler);
-            if(result == 1) return 1; // return 1 to exit recordInput loop
+
+        if(leftHandler->buffer[leftHandler->position].type == FRACTION_CHARACTER || leftHandler->buffer[leftHandler->position].type == EXPONENT_CHARACTER) {
+            InputHandler* result = Input_moveLeft(leftHandler);
+            if(result) return result; 
         }
-        recordInput(handler->leftHandler);
-        return 1; // return 1 to exit recordInput loop
+
+        return leftHandler;
     }
 
-    return 0; // return 0 for normal operation
+    return NULL;
 }
 
-int Input_moveRight(InputHandler* handler) {
+InputHandler* Input_moveRight(InputHandler* handler) {
     if(!handler || !handler->buffer) return -1;
 
     if(handler->position < handler->size - 1) {
@@ -1180,45 +1188,40 @@ int Input_moveRight(InputHandler* handler) {
             //if(Function_getName(&handler->buffer[handler->position]) != "#") handler->position++; // if function has a name go straight into inout with position shift
 
             if(handler->buffer[handler->position].data.function->baseInput) {
-                recordInput(handler->buffer[handler->position].data.function->baseInput);
-                return 1; // return 1 to exit recordInput loop
+                return(handler->buffer[handler->position].data.function->baseInput);
             }
 
-            recordInput(handler->buffer[handler->position].data.function->input);
-            return 1; // return 1 to exit recordInput loop
+            return(handler->buffer[handler->position].data.function->input);
         }
 
         handler->position++;
 
         if(handler->buffer[handler->position].type == FRACTION_CHARACTER) {
             handler->inFocus = false;
-            recordInput(handler->buffer[handler->position].data.fraction->numerator);
-            return 1; // return 1 to exit recordInput loop
+            return(handler->buffer[handler->position].data.fraction->numerator);
         }
         if(handler->buffer[handler->position].type == EXPONENT_CHARACTER) {
             handler->inFocus = false;
-            recordInput(handler->buffer[handler->position].data.exponent->exponent);
-            return 1; // return 1 to exit recordInput loop
+            return(handler->buffer[handler->position].data.exponent->exponent);
         }
     } else if(handler->rightHandler) {
         // move to next right handler if it exists
         handler->inFocus = false;
 
         InputHandler* rightHandler = handler->rightHandler;
-
         if(rightHandler->buffer[rightHandler->position].type == FUNCTION_CHARACTER) {
-            rightHandler->position++;
+            if(rightHandler->position < rightHandler->size - 1) rightHandler->position++;
         }
 
-        while(rightHandler->buffer[rightHandler->position].type == FRACTION_CHARACTER || rightHandler->buffer[rightHandler->position].type == EXPONENT_CHARACTER) {
-            int result = Input_moveRight(rightHandler);
-            if(result == 1) return 1; // return 1 to exit recordInput loop
+        if(rightHandler->buffer[rightHandler->position].type == FRACTION_CHARACTER || rightHandler->buffer[rightHandler->position].type == EXPONENT_CHARACTER) {
+            InputHandler* result = Input_moveRight(rightHandler);
+            if(result) return result; 
         }
-        recordInput(handler->rightHandler);
-        return 1; // return 1 to exit recordInput loop
+
+        return(handler->rightHandler);
     }
 
-    return 0; // return 0 for normal operation
+    return NULL; // return 0 for normal operation
 }
 
 void Input_shiftElementsLeft(InputHandler* handler, int position) {

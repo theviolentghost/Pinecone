@@ -1,9 +1,7 @@
 #ifndef AST_H
 #define AST_H
 
-#include <stdbool.h>
-#include <stdlib.h>
-
+#include "variableMap.h"
 #include "../input.h"
 
 typedef enum {
@@ -22,7 +20,21 @@ typedef enum {
     EXPONENT,
 } OperationType;
 
-struct VariableMap
+typedef enum {
+    SUCCESS,
+    DIVIDE_BY_ZERO,
+    UNDEFINED,
+    IMAGINARY,
+    INVALID_ARGUMENT,
+    INVALID_OPERATOR,
+    INVALID_FUNCTION,
+    INVALID_VARIABLE,
+    INVALID_CONSTANT,
+    INVALID_NODE,
+    INVALID_MAP,
+    INVALID_KEY,
+    INVALID_VALUE,
+} ErrorCode;
 
 typedef struct Node Node;
 typedef struct OperatorNode OperatorNode;
@@ -58,5 +70,15 @@ struct FunctionNode {
     FunctionName name;
     Node* argument;
 };
+
+Node* Constant(float value);
+Node* Variable(char variable);
+Node* Function(FunctionName function, Node* argument);
+Node* Operator(OperationType operator, Node* left, Node* right);
+void freeNode(Node* node);
+float evaluateNode(Node* rootNode, VariableMap* variables, ErrorCode* error);
+float Function_evaluate(FunctionName function, Node* argument, VariableMap* variables, ErrorCode* error);
+float Function_baseEvaluate(FunctionName function, Node* base, Node* argument, VariableMap* variables, ErrorCode* error);
+float Binary_evaluate(Node* rootNode, VariableMap* variables, ErrorCode* error);
 
 #endif // AST_H

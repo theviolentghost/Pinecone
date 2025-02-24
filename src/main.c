@@ -13,6 +13,8 @@
 #include "global.h"
 #include "graph/display.h"
 
+#include "mathmatics/parse.h"
+
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -57,6 +59,7 @@ int main() {
     gfx_Begin();
 
     initializeFonts();
+    VariableMap* variableMap = createVariableMap(10);
 
     InputHandler* input = createInputHandler();
     if(input) {
@@ -67,6 +70,27 @@ int main() {
         // input->scale = 2;
     }
     recordInput(input);
+
+    Node* root = InputHandlerToAbstractSyntaxTree(input);
+
+    if(root) {
+        ErrorCode error = SUCCESS;
+        float result = evaluateNode(root, variableMap, &error);
+        if(!error) {
+            gfx_SetTextXY(10, 10);
+            gfx_PrintInt(result, 8);
+        }
+        else {
+            gfx_SetTextXY(10, 10);
+            gfx_PrintInt(-1, 8);
+        }
+    } else {
+        gfx_SetTextXY(10, 10);
+        gfx_PrintInt(-2, 8);
+    }
+
+    while(!os_GetCSC());
+
     gfx_End();
 
     return 0;

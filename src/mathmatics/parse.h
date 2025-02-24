@@ -1,15 +1,14 @@
 #ifndef PARSE_H
 #define PARSE_H
 
-#include <stdbool.h>
-#include <stdlib.h>
-#include <string.h>
-
-#include "../input.h"
 #include "AST.h"
-#include "../global.h"
+#include "../input.h"
 
-// Node* InputToAST(InputHandler* handler);
-// InputHandler* ASTToInput(Node* node);
+Node* InputHandlerToAbstractSyntaxTree(InputHandler* handler);
+InputHandler* AbstractSyntaxTreeToInputHandler(Node* node);
+Node* parseTerm(InputHandler* handler, int* index);
+Node* parseNumber(InputHandler* handler, int* index);
+bool canParseDisplayCharacter(DisplayCharacter* character);
+bool operatorHasNULLpointers(Node* node);
 
-#endif
+#endif // PARSE_H

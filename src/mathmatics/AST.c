@@ -8,67 +8,6 @@
 #include "../global.h"
 #include "variableMap.h"
 
-typedef enum {
-    NULL_NODE,
-    BINARY_NODE,
-    CONSTANT_NODE,
-    VARIABLE_NODE,
-    FUNCTION_NODE,
-} NodeType;
-
-typedef enum {
-    SUCCESS,
-    DIVIDE_BY_ZERO,
-    UNDEFINED, // function returned undefined value
-    IMAGINARY, // function returned imaginary value
-    INVALID_ARGUMENT,
-    INVALID_OPERATOR,
-    INVALID_FUNCTION,
-    INVALID_VARIABLE,
-    INVALID_CONSTANT,
-    INVALID_NODE,
-    INVALID_MAP,
-    INVALID_KEY,
-    INVALID_VALUE,
-} ErrorCode;
-
-struct VariableMap
-
-typedef struct Node Node;
-typedef struct OperatorNode OperatorNode;
-typedef struct ConstantNode ConstantNode;
-typedef struct VariableNode VariableNode;
-typedef struct FunctionNode FunctionNode;
-
-struct Node {
-    NodeType type;
-    union {
-        struct OperatorNode* operator;
-        struct ConstantNode* constant;
-        struct VariableNode* variable;
-        struct FunctionNode* function;
-    } data;
-};
-
-struct OperatorNode {
-    char operator;
-    Node* left;
-    Node* right;
-};
-
-struct ConstantNode {
-    float value;
-};
-
-struct VariableNode {
-    char variable;
-};
-
-struct FunctionNode {
-    FunctionName function;
-    Node* argument;
-};
-
 Node* Constant(float value) {
     Node* node = malloc(sizeof(Node));
 
@@ -180,7 +119,7 @@ float evaluateNode(Node* rootNode, VariableMap* variables, ErrorCode* error) {
             }
             break;
         case FUNCTION_NODE:
-            value = Function_evaluate(rootNode, rootNode->data->function->argument, variables, error);
+            value = Function_evaluate(rootNode, rootNode->data.function->argument, variables, error);
             break;
         case BINARY_NODE:
             value = Binary_evaluate(rootNode, variables, error);
@@ -193,8 +132,8 @@ float evaluateNode(Node* rootNode, VariableMap* variables, ErrorCode* error) {
      
 }
 
-float Function_evaluate(FunctionName function, Node* argument, VariableMap* variables ErrorCode* error) {
-    if(!base || !argument) {
+float Function_evaluate(FunctionName function, Node* argument, VariableMap* variables, ErrorCode* error) {
+    if(!argument) {
         *error = INVALID_ARGUMENT;
         return 0.0;
     }
@@ -209,27 +148,30 @@ float Function_evaluate(FunctionName function, Node* argument, VariableMap* vari
             return cosf(argumentValue);
         case TAN_FUNCTION:
             return tanf(argumentValue);
-        case CSC_FUNCTION:
+        case CSC_FUNCTION: {
             float denominator = sinf(argumentValue);
             if(denominator == 0) {
                 *error = UNDEFINED;
                 return 0.0;
             }
             return 1.0 / denominator;
-        case SEC_FUNCTION:
-            denominator = cosf(argumentValue);
+        }
+        case SEC_FUNCTION: {
+            float denominator = cosf(argumentValue);
             if(denominator == 0) {
                 *error = UNDEFINED;
                 return 0.0;
             }
             return 1.0 / denominator;
-        case COT_FUNCTION:
-            denominator = tanf(argumentValue);
+        }
+        case COT_FUNCTION: {
+            float denominator = tanf(argumentValue);
             if(denominator == 0) {
                 *error = UNDEFINED;
                 return 0.0;
             }
             return 1.0 / denominator;
+        }
         case INVSIN_FUNCTION:
             return asinf(argumentValue);
         case INVCOS_FUNCTION:
@@ -237,22 +179,10 @@ float Function_evaluate(FunctionName function, Node* argument, VariableMap* vari
         case INVTAN_FUNCTION:
             return atanf(argumentValue);
         case INVCSC_FUNCTION:
-            if(argumentValue == 0) {
-                *error = UNDEFINED;
-                return 0.0;
-            }
             return asinf(1.0 / argumentValue);
         case INVSEC_FUNCTION:
-            if(argumentValue == 0) {
-                *error = UNDEFINED;
-                return 0.0;
-            }
             return acosf(1.0 / argumentValue);
         case INVCOT_FUNCTION:    
-            if(argumentValue == 0) {
-                *error = UNDEFINED;
-                return 0.0;
-            }
             return atanf(1.0 / argumentValue);
         case SQRT_FUNCTION:
             if(argumentValue < 0) {

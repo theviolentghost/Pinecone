@@ -1,6 +1,7 @@
 #include "./variableMap.h"
 #include <stdlib.h>
 #include <string.h>
+#include <math.h> 
 
 static unsigned long hash(const char *str) {
     unsigned long hash = 5381;
@@ -30,7 +31,6 @@ void freeVariableMap(VariableMap* map) {
             VariableMapEntry* tmp = entry;
             entry = entry->next;
             free(tmp->key);
-            // If needed, free tmp->value here (depending on ownership)
             free(tmp);
         }
     }
@@ -38,7 +38,7 @@ void freeVariableMap(VariableMap* map) {
     free(map);
 }
 
-int variableMapPut(VariableMap* map, const char* key, Node* value) {
+int variableMapPut(VariableMap* map, const char* key, float value) {
     if (!map || !key) return -1;
     unsigned long idx = hash(key) % map->bucketCount;
     VariableMapEntry* entry = map->buckets[idx];
@@ -67,8 +67,8 @@ int variableMapPut(VariableMap* map, const char* key, Node* value) {
     return 0;
 }
 
-Node* variableMapGet(VariableMap* map, const char* key) {
-    if (!map || !key) return NULL;
+float variableMapGet(VariableMap* map, const char* key) {
+    if (!map || !key) return NAN;
     unsigned long idx = hash(key) % map->bucketCount;
     VariableMapEntry* entry = map->buckets[idx];
     
@@ -77,5 +77,5 @@ Node* variableMapGet(VariableMap* map, const char* key) {
             return entry->value;
         entry = entry->next;
     }
-    return NULL;
+    return NAN;
 }
