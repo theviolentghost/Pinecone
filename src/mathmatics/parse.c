@@ -10,7 +10,7 @@
 
 Node* InputHandlerToAbstractSyntaxTree(InputHandler* handler) {
     Node* root = NULL;
-    Node** currentPointer = root; // points to the latest node or open branch'
+    Node** currentPointer = &root; // points to the latest node or open branch'
     //Node* currentPointerParent = NULL; // points to the parent of the currentPointer
 
     int index = 0;
@@ -22,7 +22,9 @@ Node* InputHandlerToAbstractSyntaxTree(InputHandler* handler) {
         switch(term->type) {
             case CONSTANT_NODE:
             case VARIABLE_NODE: {
-                
+                if(*currentPointer) {
+                    // if current is not null then an error occurred or bad syntax
+                }
                 *currentPointer = term;
                 break;
             }
@@ -32,7 +34,7 @@ Node* InputHandlerToAbstractSyntaxTree(InputHandler* handler) {
                     case SUBTRACTION: {
                         term->data.operator->left = root; 
                         root = term;
-                        currentPointer = term->data.operator->right; // NULL
+                        currentPointer = &term->data.operator->right; // NULL
 
                         break;
                     }
@@ -40,12 +42,10 @@ Node* InputHandlerToAbstractSyntaxTree(InputHandler* handler) {
                     case DIVISION:
                     case EXPONENT: {
                         // Attach the current subtree as the left child of the new operator.
-                        // term->data.operator->left = currentPointer;
-                        // currentPointer = term->data.operator->right; // NULL
-
-                        // if(currentPointerParent) currentPointerParent->data.operator->right = term;
-                        // currentPointerParent = term;
-                        // break;
+                        term->data.operator->left = *currentPointer;
+                        *currentPointer = term;
+                        currentPointer = &term->data.operator->right; // NULL
+                        break;
                     }
                     default: {
                         break;
