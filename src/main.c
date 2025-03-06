@@ -59,7 +59,10 @@ int main() {
     gfx_Begin();
 
     initializeFonts();
-    VariableMap* variableMap = createVariableMap(10);
+    VariableMap* variableMap = createVariableMap(50);
+    for(int index = 'a'; index <= 'z'; index++) {
+        variableMapPut(variableMap, index, index - 'a'); // just a simple init
+    }
 
     InputHandler* input = createInputHandler();
     if(input) {
@@ -69,14 +72,16 @@ int main() {
         input->window.height = 200;
         // input->scale = 2;
     }
+
     recordInput(input);
 
     Node* root = InputHandlerToAbstractSyntaxTree(input);
 
     if(root) {
-        ErrorCode error = SUCCESS;
-        float result = evaluateNode(root, variableMap, &error);
-        if(!error) {
+        ErrorCode status = SUCCESS;
+        float result = evaluateNode(root, variableMap, &status);
+
+        if(!status) {
             gfx_SetTextXY(10, 10);
             gfx_PrintInt(result, 8);
         }

@@ -883,6 +883,8 @@ void recordInput(InputHandler* handler) {
     while(handlerToRecord) {
         handlerToRecord = manageInput(handlerToRecord);
     }
+
+    gfx_SetDrawScreen(); // set draw screen to main screen
 }
 
 InputHandler* manageInput(InputHandler* handler) {

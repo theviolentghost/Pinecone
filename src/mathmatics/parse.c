@@ -11,21 +11,22 @@
 Node* InputHandlerToAbstractSyntaxTree(InputHandler* handler) {
     Node* root = NULL;
     Node** currentPointer = &root; // points to the latest node or open branch'
-    //Node* currentPointerParent = NULL; // points to the parent of the currentPointer
-
+    
     int index = 0;
     while (index < handler->size) {
         Node* term = parseTerm(handler, &index); // parseTerm consumes characters
-
-        if(!term) return NULL; // invalid term, invalid input
+        
+        if(!term) {
+            // assumes term is empty or placeholder or gap
+            index++;
+            continue;
+        } 
         
         switch(term->type) {
             case CONSTANT_NODE:
             case VARIABLE_NODE: {
-                if(*currentPointer) {
-                    // if current is not null then an error occurred or bad syntax
-                }
                 *currentPointer = term;
+                // Move to next input after setting a terminal node
                 break;
             }
             case BINARY_NODE: {
@@ -35,7 +36,6 @@ Node* InputHandlerToAbstractSyntaxTree(InputHandler* handler) {
                         term->data.operator->left = root; 
                         root = term;
                         currentPointer = &term->data.operator->right; // NULL
-
                         break;
                     }
                     case MULTIPLICATION:
@@ -51,13 +51,19 @@ Node* InputHandlerToAbstractSyntaxTree(InputHandler* handler) {
                         break;
                     }
                 }
+                break;  
             }
             default:
                 break;
         }
     }
 
-    return root;
+    if(root) {
+        gfx_SetTextXY(10, 0);
+        gfx_PrintInt(200, 8);
+    }
+    
+    return root;  // This should now be non-NULL for standalone constants
 }
 
 InputHandler* AbstractSyntaxTreeToInputHandler(Node* node) {
@@ -106,6 +112,7 @@ Node* parseTerm(InputHandler* handler, int* index) {
             // defualt, return a variable
             return Variable(handler->buffer[(*index)++].data.character);
         }
+        
         default: 
             return NULL;
     }
